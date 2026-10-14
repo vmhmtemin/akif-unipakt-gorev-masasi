@@ -3,6 +3,7 @@ const SUPABASE_URL = 'https://jbheyqmqickfuuhyesog.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_jfLnVG_RBLbzj8-HftUFlA_xgZ0Ag6X';
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 let activeProfile = null;
+let authenticatedProfile = null;
 let tasks = [];
 let filter = 'all';
 let pollTimer = null;
@@ -35,7 +36,7 @@ async function saveTasks() {
   }
   setSyncStatus('Ortak kayıt açık');
 }
-async function chooseProfile(profileId) {
+async function openWorkspace(profileId) {
   activeProfile = profileId;
   const profile = PROFILES[profileId];
   $('#profile-picker').classList.add('hidden'); $('.shell').classList.remove('hidden');
@@ -81,22 +82,34 @@ function showPinGate(mode, returnToWorkspace = false) {
   pinMode = mode; pinStage = 'first'; pendingPin = ''; pinReturnToWorkspace = returnToWorkspace;
   $('#profile-picker').classList.add('hidden'); $('.shell').classList.add('hidden'); $('#code-gate').classList.remove('hidden');
   $('#pin-code').value = ''; $('#pin-error').textContent = '';
-  $('#pin-title').textContent = mode === 'login' ? 'Giriş kodunu yaz' : mode === 'change' ? 'Yeni giriş kodu' : 'Giriş kodunu belirle';
-  $('#pin-subtitle').textContent = mode === 'login' ? 'Devam etmek için Supabase’de kayıtlı kodu gir.' : '4 haneli yeni kodunu oluştur.';
+  const profileName = PROFILES[activeProfile]?.name || '';
+  $('#pin-title').textContent = mode === 'login' ? `${profileName} için giriş kodu` : mode === 'change' ? 'Yeni giriş kodu' : `${profileName} için kod belirle`;
+  $('#pin-subtitle').textContent = mode === 'login' ? 'Bu profil için belirlenmiş 4 haneli kodu gir.' : 'Bu profile özel 4 haneli yeni kodunu oluştur.';
   $('#pin-label').textContent = mode === 'login' ? 'Giriş kodu' : 'Yeni kod';
   $('#pin-submit').textContent = mode === 'login' ? 'Giriş yap' : 'Devam et';
   $('#pin-code').focus();
 }
 function openProfilePicker() {
   $('#code-gate').classList.add('hidden'); $('.shell').classList.add('hidden'); $('#profile-picker').classList.remove('hidden');
-  $('#pin-change').classList.toggle('hidden', !accessToken);
+  $('#pin-change').classList.toggle('hidden', !accessToken || authenticatedProfile !== activeProfile);
 }
 function pinMessage(message) { $('#pin-error').textContent = message; }
 function continueAfterPin(token) {
   accessToken = token;
+  authenticatedProfile = activeProfile;
   $('#code-gate').classList.add('hidden');
-  if (pinReturnToWorkspace && activeProfile) $('.shell').classList.remove('hidden');
+  if (pinReturnToWorkspace && activeProfile) openWorkspace(activeProfile);
   else openProfilePicker();
+}
+async function chooseProfile(profileId) {
+  activeProfile = profileId;
+  if (accessToken && authenticatedProfile === profileId) { await openWorkspace(profileId); return; }
+  accessToken = null; authenticatedProfile = null;
+  $('#pin-change').classList.add('hidden');
+  showPinGate('setup', true);
+  const { data, error } = await db.rpc('has_access_pin', { p_profile_id: profileId });
+  if (error) { pinMessage(error.message?.includes('schema cache') || error.code === 'PGRST202' ? 'Supabase SQL kurulumu henüz yapılmamış. Sayfayı yenileyip tekrar dene.' : 'Supabase bağlantısı kurulamadı. Tekrar dene.'); return; }
+  showPinGate(data ? 'login' : 'setup', true);
 }
 $('#pin-form').addEventListener('submit', async event => {
   event.preventDefault();
@@ -106,7 +119,7 @@ $('#pin-form').addEventListener('submit', async event => {
   $('#pin-submit').disabled = true; pinMessage('');
   try {
     if (pinMode === 'login') {
-      const { data, error } = await db.rpc('verify_access_pin', { p_pin: pin });
+      const { data, error } = await db.rpc('verify_access_pin', { p_profile_id: activeProfile, p_pin: pin });
       if (error) throw error;
       if (!data) { pinMessage('Kod doğru değil. Tekrar dene.'); input.value = ''; input.focus(); return; }
       continueAfterPin(data); return;
@@ -118,7 +131,7 @@ $('#pin-form').addEventListener('submit', async event => {
     }
     if (pin !== pendingPin) { pinMessage('Kodlar eşleşmedi. İlk kodu yeniden yaz.'); pinStage = 'first'; pendingPin = ''; input.value = ''; $('#pin-title').textContent = 'Yeni giriş kodu'; $('#pin-subtitle').textContent = '4 haneli yeni kodunu oluştur.'; $('#pin-label').textContent = 'Yeni kod'; $('#pin-submit').textContent = 'Devam et'; input.focus(); return; }
     const result = pinMode === 'setup'
-      ? await db.rpc('setup_access_pin', { p_pin: pin })
+      ? await db.rpc('setup_access_pin', { p_profile_id: activeProfile, p_pin: pin })
       : await db.rpc('change_access_pin', { p_new_pin: pin, p_session_token: accessToken });
     if (result.error) throw result.error;
     if (!result.data) {
@@ -134,10 +147,7 @@ $('#pin-change').addEventListener('click', () => showPinGate('change', Boolean(a
 document.querySelectorAll('[data-profile]').forEach(button => button.addEventListener('click', () => chooseProfile(button.dataset.profile)));
 $('#profile-switch').addEventListener('click', openProfilePicker);
 async function initializePinGate() {
-  showPinGate('setup');
-  const { data, error } = await db.rpc('has_access_pin');
-  if (error) { pinMessage(error.message?.includes('schema cache') || error.code === 'PGRST202' ? 'Supabase SQL kurulumu henüz yapılmamış.' : 'Supabase bağlantısı kurulamadı. Tekrar dene.'); return; }
-  showPinGate(data ? 'login' : 'setup');
+  openProfilePicker();
 }
 function dateLabel(value) { if (!value) return ''; return new Intl.DateTimeFormat('tr-TR',{day:'numeric',month:'short'}).format(new Date(`${value}T12:00:00`)); }
 function todayKey() { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`; }
