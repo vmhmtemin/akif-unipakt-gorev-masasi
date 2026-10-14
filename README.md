@@ -4,9 +4,9 @@ Akif, Mehmet ve Uğur için ortak görev listesi, tamamlanma raporu ve kişi ba�
 
 ## Supabase kurulumu
 
-Supabase SQL Editor’da `supabase/schema.sql` dosyasını bir kez çalıştırın. Bu kurulum görev ve not tablolarına doğrudan anonim erişimi kapatır. Uygulama, 4 haneli kodu Supabase’te bcrypt özeti olarak saklar ve PIN doğrulamasından sonra 12 saatlik geçici oturumla verileri okur/yazar. Oturum anahtarı tarayıcı depolamasına yazılmaz.
+Yeni kurulumda Supabase SQL Editor’da `supabase/schema.sql` dosyasını çalıştırın. Önceki ortak kod kurulumunu yaptıysanız, kişi başına ayrı kodlara geçmek için `supabase/migrate_profile_pins.sql` dosyasını çalıştırın. Görev ve not tablolarına doğrudan anonim erişim kapalıdır. Her profilin 4 haneli kodu ayrı ayrı Supabase’te bcrypt özeti olarak saklanır. Başarılı giriş 12 saatlik geçici oturum açar; oturum anahtarı tarayıcı depolamasına yazılmaz. Not işlemleri yalnızca giriş yapan profilin notuna izin verir.
 
-İlk açılışta kodu belirleyip ikinci kez onaylayın. Kod değiştirmek için giriş yaptıktan sonra profil ekranındaki “Giriş kodunu değiştir” düğmesini kullanın; eski kod tekrar sorulmaz. Yeni telefon veya tarayıcıda aynı ortak kodu girin.
+Önce kendi profilinizi seçin. İlk kullanımda o profile özel kodu belirleyip ikinci kez onaylayın; diğer kişiler de aynı adımları kendi profillerinde yapar. Kod değiştirmek için ilgili profil olarak giriş yaptıktan sonra “Giriş kodunu değiştir” düğmesini kullanın; eski kod tekrar sorulmaz. Yeni telefon veya tarayıcıda aynı profili seçip o kişinin kodunu girin.
 
 Kod unutulursa mevcut kodla giriş gerekir; yönetici kurtarma akışı bu sürümde yoktur. 4 haneli kod basit ekip içi kapı içindir, güçlü hesap kimlik doğrulaması yerine geçmez.
 
