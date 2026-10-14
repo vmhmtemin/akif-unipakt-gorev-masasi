@@ -76,10 +76,32 @@ dialog{background:#23222c;color:var(--ink)}.dialog label{color:#d1cfd9}.dialog i
   .filter{padding:6px;font-size:9px}
   .report-cards{grid-template-columns:1fr}
 }
+.code-gate .picker-content{width:min(380px,100%);margin:0}
+.pin-form{max-width:300px;margin:26px auto 0;text-align:left}
+.pin-form label{display:block;color:#c5c2d1;font-size:12px;margin:0 0 8px}
+.pin-form input{display:block;width:100%;height:50px;border:1px solid #484455;border-radius:10px;background:#211f2b;color:#fff;text-align:center;font:700 22px 'DM Sans',sans-serif;letter-spacing:10px;outline:0}
+.pin-form input:focus{border-color:#9a8eff;box-shadow:0 0 0 3px #8b7cf033}
+.pin-form .primary{width:100%;margin-top:14px}
+.pin-error{min-height:17px;margin:7px 0 0;color:#ff9b91;font-size:11px;text-align:center}
+.pin-change{margin:28px auto 0;border:1px solid #514b67;border-radius:8px;background:#24212f;color:#c9c2ff;padding:9px 13px;font:500 11px 'DM Sans',sans-serif;cursor:pointer}
+.pin-change:hover{background:#302c43}
+@media(max-width:500px){.picker-brand{top:24px;left:22px}.picker-content h1{font-size:30px}.profile-options{gap:8px}.profile-option{width:90px}.profile-tile{width:82px;height:82px;font-size:31px}.pin-form{max-width:270px}}
   </style>
 </head>
 <body>
-  <section id="profile-picker" class="profile-picker" aria-labelledby="profile-title">
+  <section id="code-gate" class="profile-picker code-gate" aria-labelledby="pin-title">
+    <div class="picker-brand"><span class="brand-mark">U</span><span>unipakt<span class="brand-dot">.</span></span></div>
+    <div class="picker-content pin-content"><div class="eyebrow">GÖREV MASASI</div><h1 id="pin-title">Giriş kodunu belirle</h1><p id="pin-subtitle">İlk kullanım için 4 haneli bir kod oluştur.</p>
+      <form id="pin-form" class="pin-form">
+        <label id="pin-label" for="pin-code">Yeni kod</label>
+        <input id="pin-code" name="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" autocomplete="one-time-code" placeholder="••••" required>
+        <p id="pin-error" class="pin-error" role="alert"></p>
+        <button id="pin-submit" class="primary" type="submit">Devam et</button>
+      </form>
+    </div>
+    <div class="picker-caption">KOD SUPABASE’TE ŞİFRELİ SAKLANIR</div>
+  </section>
+  <section id="profile-picker" class="profile-picker hidden" aria-labelledby="profile-title">
     <div class="picker-brand"><span class="brand-mark">U</span><span>unipakt<span class="brand-dot">.</span></span></div>
     <div class="picker-content"><div class="eyebrow">GÖREV MASASI</div><h1 id="profile-title">Kim kullanıyor?</h1><p>Devam etmek için profilini seç.</p>
       <div class="profile-options">
@@ -87,6 +109,7 @@ dialog{background:#23222c;color:var(--ink)}.dialog label{color:#d1cfd9}.dialog i
         <button class="profile-option mehmet" data-profile="mehmet"><span class="profile-tile">M</span><strong>Mehmet</strong></button>
         <button class="profile-option ugur" data-profile="ugur"><span class="profile-tile">U</span><strong>Uğur</strong></button>
       </div>
+      <button id="pin-change" class="pin-change hidden" type="button">Giriş kodunu değiştir</button>
     </div>
     <div class="picker-caption">UNİPAKT EKİBİ</div>
   </section>
@@ -131,7 +154,7 @@ const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 let activeProfile = null;
 let tasks = [];
 let filter = 'all';
-let channel = null;
+let pollTimer = null;
 const $ = (selector) => document.querySelector(selector);
 const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 function localTasks(profile) { try { return JSON.parse(localStorage.getItem(`unipakt-tasks-${profile}-v1`) || '[]'); } catch { return []; } }
@@ -140,19 +163,26 @@ function setSyncStatus(text, offline = false) { $('#sync-label').textContent = t
 function taskFromDb(row) { return { id: row.id, title: row.title, detail: row.detail || '', assignee: row.assignee, due: row.due || '', done: row.done, createdAt: row.created_at, completedAt: row.completed_at }; }
 function taskToDb(task) { return { id: task.id, title: task.title, detail: task.detail || '', assignee: task.assignee, due: task.due || null, done: task.done, created_at: task.createdAt || new Date().toISOString(), completed_at: task.completedAt || null }; }
 async function refreshTasks() {
-  if (!activeProfile) return;
-  const { data, error } = await db.from('tasks').select('*').order('created_at', { ascending: false });
+  if (!activeProfile || !accessToken) return;
+  const { data, error } = await db.rpc('list_tasks', { p_session_token: accessToken });
   if (error) { setSyncStatus('Bağlantı bekleniyor', true); return; }
   tasks = (data || []).map(taskFromDb);
   try { localStorage.setItem(`unipakt-tasks-${activeProfile}-v1`, JSON.stringify(tasks)); } catch {}
-  setSyncStatus('Ortak kayıt açık'); render();
+  const noteResult = await db.rpc('get_profile_note', { p_session_token: accessToken, p_profile_id: activeProfile });
+  if (!noteResult.error && document.activeElement !== $('#sticky-note')) {
+    const text = noteResult.data || '';
+    $('#sticky-note').value = text; $('#note-count').textContent = `${text.length}/600`;
+  }
+  setSyncStatus(noteResult.error ? 'Not eşitlenemedi' : 'Ortak kayıt açık', Boolean(noteResult.error)); render();
 }
 async function saveTasks() {
   try { localStorage.setItem(`unipakt-tasks-${activeProfile}-v1`, JSON.stringify(tasks)); } catch {}
   render();
-  if (!tasks.length) return;
-  const { error } = await db.from('tasks').upsert(tasks.map(taskToDb), { onConflict: 'id' });
-  setSyncStatus(error ? 'Eşitleme başarısız' : 'Ortak kayıt açık', Boolean(error));
+  for (const task of tasks) {
+    const { error } = await db.rpc('upsert_task', { p_session_token: accessToken, p_task: taskToDb(task) });
+    if (error) { setSyncStatus('Eşitleme başarısız', true); return; }
+  }
+  setSyncStatus('Ortak kayıt açık');
 }
 async function chooseProfile(profileId) {
   activeProfile = profileId;
@@ -161,43 +191,103 @@ async function chooseProfile(profileId) {
   $('#profile-name').textContent = profile.name; $('#profile-avatar').textContent = profile.initial;
   $('#task-form').elements.assignee.value = profile.name;
   $('.note-head span:last-of-type').textContent = profileId === 'ugur' ? "UĞUR'UN NOTU" : `${profile.name.toLocaleUpperCase('tr-TR')}'İN NOTU`;
-  $('#sticky-note').value = '';
-  $('#note-count').textContent = '0/600';
+  $('#sticky-note').value = ''; $('#note-count').textContent = '0/600';
   setView('tasks'); filter = 'all';
   document.querySelectorAll('.filter').forEach(button => button.classList.toggle('active', button.dataset.filter === 'all'));
   tasks = []; render(); setSyncStatus('Bağlanıyor…');
-  const { data, error } = await db.from('tasks').select('*').order('created_at', { ascending: false });
+  const { data, error } = await db.rpc('list_tasks', { p_session_token: accessToken });
   if (error) { tasks = localTasks(profileId); setSyncStatus('Bağlantı kurulamadı', true); render(); return; }
   tasks = (data || []).map(taskFromDb);
   const legacyTasks = localTasks(profileId);
   if (!tasks.length && legacyTasks.length) {
-    const { error: migrateError } = await db.from('tasks').upsert(legacyTasks.map(taskToDb), { onConflict: 'id' });
-    if (!migrateError) tasks = legacyTasks;
+    let migrated = true;
+    for (const task of legacyTasks) {
+      const { error: migrateError } = await db.rpc('upsert_task', { p_session_token: accessToken, p_task: taskToDb(task) });
+      if (migrateError) { migrated = false; break; }
+    }
+    if (migrated) tasks = legacyTasks;
   }
   try { localStorage.setItem(`unipakt-tasks-${profileId}-v1`, JSON.stringify(tasks)); } catch {}
-  const { data: noteRows, error: noteError } = await db.from('profile_notes').select('body').eq('profile_id', profileId).maybeSingle();
-  let noteText = noteRows?.body || '';
-  if (!noteError && !noteRows) {
+  const noteResult = await db.rpc('get_profile_note', { p_session_token: accessToken, p_profile_id: profileId });
+  let noteText = noteResult.data || '';
+  if (!noteResult.error && !noteText) {
     noteText = localNote(profileId);
-    if (noteText) await db.from('profile_notes').upsert({ profile_id: profileId, body: noteText, updated_at: new Date().toISOString() }, { onConflict: 'profile_id' });
+    if (noteText) await db.rpc('save_profile_note', { p_session_token: accessToken, p_profile_id: profileId, p_body: noteText });
   }
   $('#sticky-note').value = noteText;
   $('#note-count').textContent = `${noteText.length}/600`;
-  setSyncStatus(noteError ? 'Not eşitlenemedi' : 'Ortak kayıt açık', Boolean(noteError));
+  setSyncStatus(noteResult.error ? 'Not eşitlenemedi' : 'Ortak kayıt açık', Boolean(noteResult.error));
   render();
-  if (channel) await db.removeChannel(channel);
-  channel = db.channel('unipakt-shared-updates')
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'tasks' }, () => refreshTasks())
-    .on('postgres_changes', { event: '*', schema: 'public', table: 'profile_notes', filter: `profile_id=eq.${profileId}` }, payload => {
-      const text = payload.new?.body;
-      if (typeof text === 'string' && document.activeElement !== $('#sticky-note')) {
-        $('#sticky-note').value = text; $('#note-count').textContent = `${text.length}/600`;
-      }
-    }).subscribe(status => { if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') setSyncStatus('Canlı eşitleme bekleniyor', true); });
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(refreshTasks, 8000);
 }
-function openProfilePicker() { $('#profile-picker').classList.remove('hidden'); $('.shell').classList.add('hidden'); }
+let accessToken = null;
+let pinMode = 'setup';
+let pinStage = 'first';
+let pendingPin = '';
+let pinReturnToWorkspace = false;
+function showPinGate(mode, returnToWorkspace = false) {
+  pinMode = mode; pinStage = 'first'; pendingPin = ''; pinReturnToWorkspace = returnToWorkspace;
+  $('#profile-picker').classList.add('hidden'); $('.shell').classList.add('hidden'); $('#code-gate').classList.remove('hidden');
+  $('#pin-code').value = ''; $('#pin-error').textContent = '';
+  $('#pin-title').textContent = mode === 'login' ? 'Giriş kodunu yaz' : mode === 'change' ? 'Yeni giriş kodu' : 'Giriş kodunu belirle';
+  $('#pin-subtitle').textContent = mode === 'login' ? 'Devam etmek için Supabase’de kayıtlı kodu gir.' : '4 haneli yeni kodunu oluştur.';
+  $('#pin-label').textContent = mode === 'login' ? 'Giriş kodu' : 'Yeni kod';
+  $('#pin-submit').textContent = mode === 'login' ? 'Giriş yap' : 'Devam et';
+  $('#pin-code').focus();
+}
+function openProfilePicker() {
+  $('#code-gate').classList.add('hidden'); $('.shell').classList.add('hidden'); $('#profile-picker').classList.remove('hidden');
+  $('#pin-change').classList.toggle('hidden', !accessToken);
+}
+function pinMessage(message) { $('#pin-error').textContent = message; }
+function continueAfterPin(token) {
+  accessToken = token;
+  $('#code-gate').classList.add('hidden');
+  if (pinReturnToWorkspace && activeProfile) $('.shell').classList.remove('hidden');
+  else openProfilePicker();
+}
+$('#pin-form').addEventListener('submit', async event => {
+  event.preventDefault();
+  const input = $('#pin-code');
+  const pin = input.value.trim();
+  if (!/^\d{4}$/.test(pin)) { pinMessage('Kod 4 rakamdan oluşmalı.'); return; }
+  $('#pin-submit').disabled = true; pinMessage('');
+  try {
+    if (pinMode === 'login') {
+      const { data, error } = await db.rpc('verify_access_pin', { p_pin: pin });
+      if (error) throw error;
+      if (!data) { pinMessage('Kod doğru değil. Tekrar dene.'); input.value = ''; input.focus(); return; }
+      continueAfterPin(data); return;
+    }
+    if (pinStage === 'first') {
+      pendingPin = pin; pinStage = 'confirm'; input.value = '';
+      $('#pin-title').textContent = 'Kodu tekrar yaz'; $('#pin-subtitle').textContent = 'Aynı kodu doğrulamak için bir kez daha gir.';
+      $('#pin-label').textContent = 'Yeni kodu onayla'; $('#pin-submit').textContent = 'Kodu onayla'; input.focus(); return;
+    }
+    if (pin !== pendingPin) { pinMessage('Kodlar eşleşmedi. İlk kodu yeniden yaz.'); pinStage = 'first'; pendingPin = ''; input.value = ''; $('#pin-title').textContent = 'Yeni giriş kodu'; $('#pin-subtitle').textContent = '4 haneli yeni kodunu oluştur.'; $('#pin-label').textContent = 'Yeni kod'; $('#pin-submit').textContent = 'Devam et'; input.focus(); return; }
+    const result = pinMode === 'setup'
+      ? await db.rpc('setup_access_pin', { p_pin: pin })
+      : await db.rpc('change_access_pin', { p_new_pin: pin, p_session_token: accessToken });
+    if (result.error) throw result.error;
+    if (!result.data) {
+      pinMessage(pinMode === 'setup' ? 'Kod daha önce belirlenmiş. Sayfayı yenileyip giriş yap.' : 'Oturumun süresi dolmuş. Önce giriş yap.');
+      pendingPin = ''; pinStage = 'first'; return;
+    }
+    continueAfterPin(pinMode === 'change' ? accessToken : result.data);
+  } catch (error) {
+    pinMessage(error.message?.includes('schema cache') || error.code === 'PGRST202' ? 'Supabase SQL kurulumu henüz yapılmamış.' : 'Supabase bağlantısı kurulamadı. Tekrar dene.');
+  } finally { $('#pin-submit').disabled = false; }
+});
+$('#pin-change').addEventListener('click', () => showPinGate('change', Boolean(activeProfile)));
 document.querySelectorAll('[data-profile]').forEach(button => button.addEventListener('click', () => chooseProfile(button.dataset.profile)));
 $('#profile-switch').addEventListener('click', openProfilePicker);
+async function initializePinGate() {
+  showPinGate('setup');
+  const { data, error } = await db.rpc('has_access_pin');
+  if (error) { pinMessage(error.message?.includes('schema cache') || error.code === 'PGRST202' ? 'Supabase SQL kurulumu henüz yapılmamış.' : 'Supabase bağlantısı kurulamadı. Tekrar dene.'); return; }
+  showPinGate(data ? 'login' : 'setup');
+}
 function dateLabel(value) { if (!value) return ''; return new Intl.DateTimeFormat('tr-TR',{day:'numeric',month:'short'}).format(new Date(`${value}T12:00:00`)); }
 function todayKey() { const date = new Date(); return `${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}`; }
 function isToday(value) { return value && new Date(value).toDateString() === new Date().toDateString(); }
@@ -231,13 +321,12 @@ $('#close-dialog').addEventListener('click',()=>$('#task-dialog').close()); $('#
 $('#task-form').addEventListener('submit',async event=>{event.preventDefault();const data=new FormData(event.currentTarget);tasks.unshift({id:crypto.randomUUID(),title:data.get('title').trim(),detail:data.get('detail').trim(),assignee:data.get('assignee').trim(),due:data.get('due'),done:false,createdAt:new Date().toISOString()});event.currentTarget.reset();event.currentTarget.elements.assignee.value=PROFILES[activeProfile].name;$('#task-dialog').close();filter='all';document.querySelectorAll('.filter').forEach(button=>button.classList.toggle('active',button.dataset.filter==='all'));await saveTasks();});
 document.querySelectorAll('.filter').forEach(button=>button.addEventListener('click',()=>{filter=button.dataset.filter;document.querySelectorAll('.filter').forEach(item=>item.classList.toggle('active',item===button));render();}));
 document.querySelectorAll('.nav-item').forEach(button=>button.addEventListener('click',()=>setView(button.dataset.view)));
-$('#task-list').addEventListener('change',async event=>{if(event.target.matches('[data-toggle]')){const task=tasks.find(item=>item.id===event.target.dataset.toggle);task.done=event.target.checked;task.completedAt=task.done?new Date().toISOString():null;const { error } = await db.from('tasks').update({ done: task.done, completed_at: task.completedAt }).eq('id', task.id);setSyncStatus(error?'Eşitleme başarısız':'Ortak kayıt açık',Boolean(error));render();}});
-$('#task-list').addEventListener('click',async event=>{const button=event.target.closest('[data-delete]');if(button){const { error } = await db.from('tasks').delete().eq('id',button.dataset.delete);if(error){setSyncStatus('Görev silinemedi',true);return;}tasks=tasks.filter(task=>task.id!==button.dataset.delete);try{localStorage.setItem(`unipakt-tasks-${activeProfile}-v1`,JSON.stringify(tasks));}catch{}render();}});
-$('#sticky-note').addEventListener('input',()=>{$('#note-count').textContent=`${$('#sticky-note').value.length}/600`;$('#note-status').textContent='Kaydediliyor…';clearTimeout(window.noteTimer);window.noteTimer=setTimeout(async()=>{const {error}=await db.from('profile_notes').upsert({profile_id:activeProfile,body:$('#sticky-note').value,updated_at:new Date().toISOString()},{onConflict:'profile_id'});try{localStorage.setItem(`unipakt-note-${activeProfile}-v1`,$('#sticky-note').value);}catch{}$('#note-status').textContent=error?'Eşitlenemedi':'Ortak kaydedildi';setSyncStatus(error?'Eşitleme başarısız':'Ortak kayıt açık',Boolean(error));},500);});
-$('#clear-note').addEventListener('click',async()=>{const {error}=await db.from('profile_notes').delete().eq('profile_id',activeProfile);if(error){setSyncStatus('Not silinemedi',true);return;}$('#sticky-note').value='';try{localStorage.removeItem(`unipakt-note-${activeProfile}-v1`);}catch{}$('#note-count').textContent='0/600';$('#note-status').textContent='Not temizlendi';});
+$('#task-list').addEventListener('change',async event=>{if(event.target.matches('[data-toggle]')){const task=tasks.find(item=>item.id===event.target.dataset.toggle);task.done=event.target.checked;task.completedAt=task.done?new Date().toISOString():null;const { error } = await db.rpc('update_task_state', { p_session_token: accessToken, p_task_id: task.id, p_done: task.done, p_completed_at: task.completedAt });setSyncStatus(error?'Eşitleme başarısız':'Ortak kayıt açık',Boolean(error));render();}});
+$('#task-list').addEventListener('click',async event=>{const button=event.target.closest('[data-delete]');if(button){const { error } = await db.rpc('delete_task', { p_session_token: accessToken, p_task_id: button.dataset.delete });if(error){setSyncStatus('Görev silinemedi',true);return;}tasks=tasks.filter(task=>task.id!==button.dataset.delete);try{localStorage.setItem(`unipakt-tasks-${activeProfile}-v1`,JSON.stringify(tasks));}catch{}render();}});
+$('#sticky-note').addEventListener('input',()=>{$('#note-count').textContent=`${$('#sticky-note').value.length}/600`;$('#note-status').textContent='Kaydediliyor…';clearTimeout(window.noteTimer);window.noteTimer=setTimeout(async()=>{const {error}=await db.rpc('save_profile_note',{p_session_token:accessToken,p_profile_id:activeProfile,p_body:$('#sticky-note').value});try{localStorage.setItem(`unipakt-note-${activeProfile}-v1`,$('#sticky-note').value);}catch{}$('#note-status').textContent=error?'Eşitlenemedi':'Ortak kaydedildi';setSyncStatus(error?'Eşitleme başarısız':'Ortak kayıt açık',Boolean(error));},500);});
+$('#clear-note').addEventListener('click',async()=>{const {error}=await db.rpc('clear_profile_note',{p_session_token:accessToken,p_profile_id:activeProfile});if(error){setSyncStatus('Not silinemedi',true);return;}$('#sticky-note').value='';try{localStorage.removeItem(`unipakt-note-${activeProfile}-v1`);}catch{}$('#note-count').textContent='0/600';$('#note-status').textContent='Not temizlendi';});
 $('#export-report').addEventListener('click',()=>{const done=tasks.filter(task=>task.done);const rows=[['Görev','Detay','Sorumlu','Tamamlanma tarihi'],...done.map(task=>[task.title,task.detail,task.assignee,task.completedAt?new Intl.DateTimeFormat('tr-TR',{dateStyle:'short',timeStyle:'short'}).format(new Date(task.completedAt)):''])];const csv='\ufeff'+rows.map(row=>row.map(value=>`"${String(value??'').replaceAll('"','""')}"`).join(';')).join('\r\n');const link=document.createElement('a');link.href=URL.createObjectURL(new Blob([csv],{type:'text/csv;charset=utf-8'}));link.download=`unipakt-gorev-raporu-${todayKey()}.csv`;link.click();URL.revokeObjectURL(link.href);});
-$('#note-count').textContent=`${$('#sticky-note').value.length}/600`;render();
-
+$('#note-count').textContent=`${$('#sticky-note').value.length}/600`;render();initializePinGate();
   </script>
 </body>
 </html>
