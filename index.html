@@ -32,6 +32,50 @@ body{background:#15141b;color:var(--ink)}
 .report-badge{color:#79d8af;background:#21382f}
 dialog{background:#23222c;color:var(--ink)}.dialog label{color:#d1cfd9}.dialog input,.dialog textarea{background:#191820;border-color:#3a3845;color:#eeeef4}
 .dialog input::placeholder,.dialog textarea::placeholder{color:#777581}.close,.secondary{background:#383641;color:#d1cfda}
+
+@media(max-width:690px){
+  .sidebar{inset:auto 0 0;width:100%;height:64px;padding:7px 14px;flex-direction:row;justify-content:space-around;align-items:center;border-right:0;border-top:1px solid #302e39}
+  .brand,.side-label,.sidebar-bottom{display:none}
+  .nav-item,.nav-item:not(.active){display:flex;flex:1;width:auto;height:46px;min-width:0;margin:0;padding:5px 4px;flex-direction:column;justify-content:center;gap:3px;text-align:center;font-size:10px;border-radius:9px}
+  .nav-item>span{font-size:17px;line-height:18px}
+  .nav-item b{display:none}
+  .main{margin-left:0;width:100%;padding:0 16px 82px}
+  .topbar{height:58px}
+  .page-heading{margin:24px 0 18px;align-items:center;gap:10px}
+  .page-heading h1{font-size:24px}
+  .page-heading p{max-width:215px;line-height:1.45}
+  .page-heading .primary{padding:10px 11px;white-space:nowrap;font-size:10px;flex:none}
+  .summary-grid{gap:8px}
+  .summary-card{min-width:0;padding:11px 8px;min-height:88px;gap:5px}
+  .workspace-grid{grid-template-columns:minmax(0,1fr);gap:10px}
+  .note-wrap{grid-row:1;padding:4px 8px 5px}
+  .note{min-height:155px}
+  .note textarea{height:78px}
+  .note-hint{display:none}
+  .panel-head{flex-wrap:wrap;align-items:center;padding:14px 12px 11px;gap:10px}
+  .filters{margin-left:auto}
+  .task-row{min-width:0;padding:13px 12px;gap:8px}
+  .task-content{overflow:hidden}
+  .task-meta{gap:5px;flex-direction:column;align-items:flex-end;flex:none}
+  .assignee{padding:4px 6px}
+  .report-cards{gap:8px}
+  .report-row{padding:13px 12px}
+  .profile small{display:none}
+  .crumb{font-size:10px}
+  .form-row{grid-template-columns:1fr}
+  #task-form{padding:20px}
+}
+@media(max-width:390px){
+  .main{padding-left:12px;padding-right:12px}
+  .summary-grid{gap:6px}
+  .summary-card{padding:10px 6px}
+  .summary-card small{font-size:8px;line-height:1.25}
+  .summary-card strong{font-size:18px}
+  .panel-head{gap:7px;padding-left:10px;padding-right:10px}
+  .panel-head p{max-width:130px;line-height:1.4}
+  .filter{padding:6px;font-size:9px}
+  .report-cards{grid-template-columns:1fr}
+}
   </style>
 </head>
 <body>
