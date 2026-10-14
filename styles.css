@@ -68,3 +68,13 @@ dialog{background:#23222c;color:var(--ink)}.dialog label{color:#d1cfd9}.dialog i
   .filter{padding:6px;font-size:9px}
   .report-cards{grid-template-columns:1fr}
 }
+.code-gate .picker-content{width:min(380px,100%);margin:0}
+.pin-form{max-width:300px;margin:26px auto 0;text-align:left}
+.pin-form label{display:block;color:#c5c2d1;font-size:12px;margin:0 0 8px}
+.pin-form input{display:block;width:100%;height:50px;border:1px solid #484455;border-radius:10px;background:#211f2b;color:#fff;text-align:center;font:700 22px 'DM Sans',sans-serif;letter-spacing:10px;outline:0}
+.pin-form input:focus{border-color:#9a8eff;box-shadow:0 0 0 3px #8b7cf033}
+.pin-form .primary{width:100%;margin-top:14px}
+.pin-error{min-height:17px;margin:7px 0 0;color:#ff9b91;font-size:11px;text-align:center}
+.pin-change{margin:28px auto 0;border:1px solid #514b67;border-radius:8px;background:#24212f;color:#c9c2ff;padding:9px 13px;font:500 11px 'DM Sans',sans-serif;cursor:pointer}
+.pin-change:hover{background:#302c43}
+@media(max-width:500px){.picker-brand{top:24px;left:22px}.picker-content h1{font-size:30px}.profile-options{gap:8px}.profile-option{width:90px}.profile-tile{width:82px;height:82px;font-size:31px}.pin-form{max-width:270px}}
