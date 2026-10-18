@@ -78,3 +78,6 @@ dialog{background:#23222c;color:var(--ink)}.dialog label{color:#d1cfd9}.dialog i
 .pin-change{margin:28px auto 0;border:1px solid #514b67;border-radius:8px;background:#24212f;color:#c9c2ff;padding:9px 13px;font:500 11px 'DM Sans',sans-serif;cursor:pointer}
 .pin-change:hover{background:#302c43}
 @media(max-width:500px){.picker-brand{top:24px;left:22px}.picker-content h1{font-size:30px}.profile-options{gap:8px}.profile-option{width:90px}.profile-tile{width:82px;height:82px;font-size:31px}.pin-form{max-width:270px}}
+
+/* Görev formu hata mesajı */
+.form-error{min-height:14px;margin:4px 0 0;color:#c45252;font-size:11px}
