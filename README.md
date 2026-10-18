@@ -4,11 +4,17 @@ Akif, Mehmet ve Uğur için ortak görev listesi, tamamlanma raporu ve kişi ba�
 
 ## Supabase kurulumu
 
-Yeni kurulumda Supabase SQL Editor’da önce `supabase/schema.sql`, ardından `supabase/security_hardening.sql` dosyasını çalıştırın. Mevcut kurulumda yalnızca `supabase/security_hardening.sql` dosyasını bir kez çalıştırmanız yeterli (veriler korunur, tekrar çalıştırmak zararsızdır). Önceki ortak kod kurulumunu yaptıysanız, kişi başına ayrı kodlara geçmek için `supabase/migrate_profile_pins.sql` dosyasını çalıştırın. Görev ve not tablolarına doğrudan anonim erişim kapalıdır. Her profilin 4 haneli kodu ayrı ayrı Supabase’te bcrypt özeti olarak saklanır. Başarılı giriş 12 saatlik geçici oturum açar; oturum anahtarı tarayıcı depolamasına yazılmaz. Not işlemleri yalnızca giriş yapan profilin notuna izin verir.
+Yeni kurulumda Supabase SQL Editor’da önce `supabase/schema.sql`, ardından `supabase/security_hardening.sql` dosyasını çalıştırın. ardından `supabase/v2_features.sql` dosyasını çalıştırın. Mevcut kurulumda bu iki dosyayı bu sırayla birer kez çalıştırmanız yeterli (veriler korunur, tekrar çalıştırmak zararsızdır). Önceki ortak kod kurulumunu yaptıysanız, kişi başına ayrı kodlara geçmek için `supabase/migrate_profile_pins.sql` dosyasını çalıştırın. Görev ve not tablolarına doğrudan anonim erişim kapalıdır. Her profilin 4 haneli kodu ayrı ayrı Supabase’te bcrypt özeti olarak saklanır. Başarılı giriş 12 saatlik geçici oturum açar; oturum anahtarı tarayıcı depolamasına yazılmaz. Not işlemleri yalnızca giriş yapan profilin notuna izin verir.
 
 Önce kendi profilinizi seçin. İlk kullanımda o profile özel kodu belirleyip ikinci kez onaylayın; diğer kişiler de aynı adımları kendi profillerinde yapar. Kod değiştirmek için ilgili profil olarak giriş yaptıktan sonra “Giriş kodunu değiştir” düğmesini kullanın; eski kod tekrar sorulmaz. Yeni telefon veya tarayıcıda aynı profili seçip o kişinin kodunu girin.
 
 Kod unutulursa mevcut kodla giriş gerekir; yönetici kurtarma akışı bu sürümde yoktur. 4 haneli kod basit ekip içi kapı içindir, güçlü hesap kimlik doğrulaması yerine geçmez.
+
+## Özellikler
+
+- **Görevler:** Göreve tıklayınca düzenlenir. Sorumlu (Akif, Mehmet, Uğur, Herkes), öncelik (Normal / Acil) ve son tarih seçilir. Arama ve “Bana atananlar” filtresi var. Açık görevler sırası: geciken, bugün biten ve acil olanlar üstte, sonra son tarihe göre. Kimin eklediği ve tamamladığı otomatik kaydedilir. Silinen görev 5 saniye içinde “Geri al” ile geri gelir. Klavyede `N` yeni görev açar.
+- **Takvim:** Son tarihli görevler aylık ızgarada, telefonda haftalık listede görünür; renkler sorumlu kişiye göredir, gecikenler kırmızı çerçeveli, tamamlananlar soluktur. Boş güne tıklamak o tarihli yeni görev açar; bilgisayarda görev başka bir güne sürüklenebilir. “Takvime aktar” açık görevleri `.ics` dosyası olarak indirir (iPhone/Google Takvim’e tek seferlik eklenir, sonradan otomatik güncellenmez).
+- **Eşzamanlı düzenleme:** İki kişi aynı görevi aynı anda düzenlerse ikinci kayıt reddedilir, liste yenilenir ve “tekrar dene” uyarısı çıkar; kimsenin değişikliği habersizce ezilmez.
 
 ## Güvenlik notları
 
@@ -24,8 +30,10 @@ Kod unutulursa mevcut kodla giriş gerekir; yönetici kurtarma akışı bu sür�
 index.html                       Sayfa iskeleti
 styles.css                       Stiller
 app.js                           Uygulama mantığı (Supabase RPC çağrıları)
+calendar.js                      Takvim sekmesi ve .ics dışa aktarma
 supabase/schema.sql              İlk kurulum
 supabase/security_hardening.sql  Güvenlik güncellemesi (schema.sql’den sonra)
+supabase/v2_features.sql         Düzenleme, öncelik, kim yaptı, geri alma (hardening’den sonra)
 supabase/migrate_profile_pins.sql Eski ortak koddan kişisel kodlara geçiş
 ```
 

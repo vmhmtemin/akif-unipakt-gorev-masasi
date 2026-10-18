@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f8f8f5">
   <title>Unipakt Görev Masası</title>
-  <link rel="stylesheet" href="styles.css?v=2">
+  <link rel="stylesheet" href="styles.css?v=3">
 </head>
 <body>
   <section id="code-gate" class="profile-picker code-gate" aria-labelledby="pin-title">
@@ -37,6 +37,7 @@
       <a class="brand" href="#" aria-label="Unipakt ana sayfa"><span class="brand-mark">U</span><span>unipakt<span class="brand-dot">.</span><small>GÖREV MASASI</small></span></a>
       <div class="side-label">ÇALIŞMA ALANI</div>
       <button class="nav-item active" data-view="tasks"><span>▦</span> Görevler <b id="nav-open">0</b></button>
+      <button class="nav-item" data-view="calendar"><span>◫</span> Takvim</button>
       <button class="nav-item" data-view="reports"><span>▤</span> Raporlar</button>
       <div class="sidebar-bottom"><div class="sync-dot"></div><span id="sync-label">Ortak kayıt açık</span></div>
     </aside>
@@ -44,16 +45,27 @@
     <main class="main">
       <header class="topbar"><div class="crumb">Unipakt <span>/</span> <b id="crumb-view">Görevler</b></div><button id="profile-switch" class="profile" aria-label="Profil değiştir"><div id="profile-avatar" class="avatar">A</div><div><strong id="profile-name">Akif</strong><small>Unipakt ekibi</small></div><span class="chevron">⌄</span></button></header>
       <section id="tasks-view" class="view">
-        <div class="page-heading"><div><div class="eyebrow">EKİP ÇALIŞMA ALANI</div><h1>Görevler</h1><p>İşleri yaz, takip et, tamamlananları raporla.</p></div><button class="primary" id="open-task">＋ Yeni görev</button></div>
+        <div class="page-heading"><div><div class="eyebrow">EKİP ÇALIŞMA ALANI</div><h1>Görevler</h1><p>İşleri yaz, takip et, tamamlananları raporla.</p></div><button class="primary" id="open-task" title="Yeni görev (N)">＋ Yeni görev</button></div>
         <div class="summary-grid">
           <article class="summary-card"><span class="summary-icon violet">▦</span><div><small>Açık görev</small><strong id="stat-open">0</strong></div><span class="summary-foot">Tamamlanmayı bekliyor</span></article>
           <article class="summary-card"><span class="summary-icon green">✓</span><div><small>Bugün tamamlanan</small><strong id="stat-done">0</strong></div><span class="summary-foot">Güzel iş, devam!</span></article>
           <article class="summary-card"><span class="summary-icon orange">◷</span><div><small>Geciken</small><strong id="stat-late">0</strong></div><span class="summary-foot">Son tarihi geçmiş</span></article>
         </div>
         <div class="workspace-grid">
-          <section class="task-panel"><div class="panel-head"><div><h2>Görev listesi</h2><p>Ekibin güncel işleri</p></div><div class="filters" role="tablist"><button class="filter active" data-filter="all">Tümü</button><button class="filter" data-filter="open">Açık</button><button class="filter" data-filter="done">Tamamlandı</button></div></div><div id="task-list"></div><div id="empty-state" class="empty"><div class="empty-icon">✓</div><strong>Henüz görev yok</strong><p>İlk görevi ekleyerek başlayın.</p><button class="text-button" id="empty-add">＋ Görev ekle</button></div></section>
+          <section class="task-panel"><div class="panel-head"><div><h2>Görev listesi</h2><p>Ekibin güncel işleri</p></div><div class="filters" role="tablist"><button class="filter active" data-filter="all">Tümü</button><button class="filter" data-filter="open">Açık</button><button class="filter" data-filter="done">Tamamlandı</button></div></div><div class="task-tools"><label class="search"><span aria-hidden="true">⌕</span><input id="task-search" type="search" placeholder="Görevlerde ara…" aria-label="Görevlerde ara"></label><button id="mine-toggle" class="chip-toggle" type="button" aria-pressed="false">Bana atananlar</button></div><div id="task-list"></div><div id="empty-state" class="empty"><div class="empty-icon">✓</div><strong id="empty-title">Henüz görev yok</strong><p id="empty-text">İlk görevi ekleyerek başlayın.</p><button class="text-button" id="empty-add">＋ Görev ekle</button></div></section>
           <aside class="note-wrap"><div class="note"><div class="tape"></div><div class="note-head"><span class="note-pin">✳</span><span>AKİF'İN NOTU</span><button id="clear-note" title="Notu temizle" aria-label="Notu temizle">×</button></div><textarea id="sticky-note" maxlength="600" placeholder="Aklında tutmak istediğin bir şey yaz..."></textarea><div class="note-foot"><span id="note-status">Otomatik kaydedilir</span><span id="note-count">0/600</span></div></div><div class="note-hint">Küçük notun burada saklı kalır ✨</div></aside>
         </div>
+      </section>
+      <section id="calendar-view" class="view hidden">
+        <div class="page-heading"><div><div class="eyebrow">ZAMAN ÇİZELGESİ</div><h1>Takvim</h1><p>Son tarihli görevler gün gün. Boş bir güne tıklayıp görev ekle.</p></div><button class="primary" id="cal-export" title="Açık görevleri telefon takvimine aktar">↓ Takvime aktar</button></div>
+        <section class="task-panel cal-panel">
+          <div class="cal-toolbar">
+            <div class="cal-nav"><button type="button" id="cal-prev" class="cal-arrow" aria-label="Önceki">‹</button><h2 id="cal-title" aria-live="polite"></h2><button type="button" id="cal-next" class="cal-arrow" aria-label="Sonraki">›</button><button type="button" id="cal-today" class="cal-today">Bugün</button></div>
+            <div class="filters cal-people" id="cal-people" role="group" aria-label="Kişiye göre filtrele"><button type="button" class="filter active" data-person="all">Herkes</button><button type="button" class="filter" data-person="akif"><i class="dot p-akif"></i>Akif</button><button type="button" class="filter" data-person="mehmet"><i class="dot p-mehmet"></i>Mehmet</button><button type="button" class="filter" data-person="ugur"><i class="dot p-ugur"></i>Uğur</button></div>
+          </div>
+          <div id="cal-grid" class="cal-grid"></div>
+          <div class="cal-foot"><span id="cal-undated"></span><span class="cal-hint">Bilgisayarda görevi sürükleyip başka güne bırakabilirsin.</span></div>
+        </section>
       </section>
       <section id="reports-view" class="view hidden">
         <div class="page-heading"><div><div class="eyebrow">İLERLEME ÖZETİ</div><h1>Raporlar</h1><p>Tamamlanan işleri incele ve dışa aktar.</p></div><button class="primary" id="export-report">↓ Raporu indir</button></div>
@@ -63,8 +75,10 @@
       <footer>Unipakt Görev Masası <span>·</span> İşler yolunda.</footer>
     </main>
   </div>
-  <dialog id="task-dialog"><form id="task-form"><div class="dialog-head"><div><span class="eyebrow">YENİ İŞ</span><h2>Görev oluştur</h2></div><button type="button" class="close" id="close-dialog" aria-label="Kapat">×</button></div><label>Görev adı<input name="title" required maxlength="120" placeholder="Örn. Haftalık stok kontrolünü yap"></label><label>Detay <span class="optional">(isteğe bağlı)</span><textarea name="detail" rows="3" maxlength="400" placeholder="Görevle ilgili kısa bir açıklama..."></textarea></label><div class="form-row"><label>Sorumlu kişi<input name="assignee" value="Akif" maxlength="60" required></label><label>Son tarih<input name="due" type="date"></label></div><p id="task-form-error" class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary" id="cancel-dialog">Vazgeç</button><button type="submit" class="primary">Görevi ekle</button></div></form></dialog>
+  <dialog id="task-dialog" class="dialog" aria-labelledby="dialog-title"><form id="task-form"><div class="dialog-head"><div><span class="eyebrow" id="dialog-eyebrow">YENİ İŞ</span><h2 id="dialog-title">Görev oluştur</h2></div><button type="button" class="close" id="close-dialog" aria-label="Kapat">×</button></div><label>Görev adı<input name="title" required maxlength="120" placeholder="Örn. Haftalık stok kontrolünü yap"></label><label>Detay <span class="optional">(isteğe bağlı)</span><textarea name="detail" rows="3" maxlength="400" placeholder="Görevle ilgili kısa bir açıklama..."></textarea></label><div class="form-row three"><label>Sorumlu<select name="assignee"></select></label><label>Öncelik<select name="priority"><option value="normal">Normal</option><option value="urgent">Acil</option></select></label><label>Son tarih<input name="due" type="date"></label></div><p id="task-form-error" class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary" id="cancel-dialog">Vazgeç</button><button type="submit" class="primary" id="dialog-submit">Görevi ekle</button></div></form></dialog>
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"><span id="toast-text"></span><button type="button" id="toast-action" class="hidden"></button></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script>
-  <script src="app.js?v=2"></script>
+  <script src="calendar.js?v=3"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

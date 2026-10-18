@@ -236,5 +236,5 @@ grant execute on function public.save_profile_note(text,text,text) to anon;
 grant execute on function public.clear_profile_note(text,text) to anon;
 
 
--- Sonraki adım: supabase/security_hardening.sql dosyasını da çalıştırın
+-- Sonraki adımlar: supabase/security_hardening.sql, ardından supabase/v2_features.sql
 -- (kod deneme sınırı, görev doğrulaması, add_task).

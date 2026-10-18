@@ -81,3 +81,110 @@ dialog{background:#23222c;color:var(--ink)}.dialog label{color:#d1cfd9}.dialog i
 
 /* Görev formu hata mesajı */
 .form-error{min-height:14px;margin:4px 0 0;color:#c45252;font-size:11px}
+
+/* =====================================================================
+   v3 — kişi renkleri, araç çubuğu, düzenleme, bildirim, takvim
+   ===================================================================== */
+.p-akif{--pc:#8b7cf0}.p-mehmet{--pc:#45b5a6}.p-ugur{--pc:#f0a75f}.p-herkes{--pc:#d986b4}.p-other{--pc:#8e8c9a}
+
+/* Görev satırı */
+.task-content{display:block;border:0;background:none;padding:0;margin:0;text-align:left;color:inherit;font:inherit;cursor:pointer;border-radius:6px}
+.task-content:hover .task-title{color:#c7beff}
+.task-content:focus-visible{outline:2px solid #8b7cf0;outline-offset:4px}
+.task-title,.task-detail,.task-who{display:block}
+.task-who{font-size:9.5px;color:#7f7d8b;margin-top:5px}
+.badge-urgent{display:inline-block;vertical-align:1px;margin-right:7px;padding:2px 6px;border-radius:5px;background:#4a2525;color:#ff9b8f;font-size:9px;font-weight:700;letter-spacing:.4px;text-transform:uppercase}
+.task-row.urgent{box-shadow:inset 3px 0 0 #e8786b}
+.assignee[class*="p-"]{background:color-mix(in srgb,var(--pc) 20%,#1d1c25);color:color-mix(in srgb,var(--pc) 70%,#fff)}
+.due.soon{font-weight:600}
+.delete-task:disabled{opacity:.4}
+
+/* Arama ve "Bana atananlar" */
+.task-tools{display:flex;gap:8px;align-items:center;padding:10px 19px;border-bottom:1px solid #33313d}
+.search{flex:1;display:flex;align-items:center;gap:7px;height:32px;padding:0 10px;border:1px solid #3a3845;border-radius:8px;background:#191820;color:#8e8c9a;min-width:0}
+.search:focus-within{border-color:#8b7cf0;box-shadow:0 0 0 3px #8b7cf022}
+.search input{flex:1;min-width:0;border:0;outline:0;background:none;color:var(--ink);font:12px 'DM Sans',sans-serif}
+.search input::placeholder{color:#777581}
+.chip-toggle{height:32px;padding:0 12px;border:1px solid #3a3845;border-radius:8px;background:#23222c;color:#b1afbd;font:500 11px 'DM Sans',sans-serif;cursor:pointer;white-space:nowrap}
+.chip-toggle.active{background:#302c43;border-color:#5b4fa8;color:#c7beff}
+
+/* Form: üçlü satır ve seçim kutuları */
+.form-row.three{grid-template-columns:1fr 1fr 1fr}
+.dialog select{display:block;width:100%;height:38px;border:1px solid #3a3845;border-radius:7px;padding:0 9px;margin-top:7px;background:#191820;color:#eeeef4;font:12px 'DM Sans',sans-serif;outline:0}
+.dialog select:focus{border-color:#9286e5;box-shadow:0 0 0 3px #6958d818}
+.dialog input[type=date]{color-scheme:dark}
+.form-error{color:#ff9b91}
+
+/* Bildirim */
+.toast{position:fixed;left:50%;bottom:24px;transform:translateX(-50%);z-index:30;display:flex;align-items:center;gap:14px;max-width:calc(100% - 32px);padding:11px 12px 11px 16px;border-radius:10px;background:#2b2937;border:1px solid #403d4d;color:#eeeef4;font-size:12px;box-shadow:0 10px 30px #0007;animation:toast-in .18s ease-out}
+.toast span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toast button{border:0;border-radius:6px;padding:6px 10px;background:#8b7cf0;color:#fff;font:700 11px 'DM Sans',sans-serif;cursor:pointer;flex:none}
+@keyframes toast-in{from{opacity:0;transform:translate(-50%,8px)}}
+
+/* Takvim */
+.cal-panel{min-height:0}
+.cal-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:14px 16px;border-bottom:1px solid #33313d}
+.cal-nav{display:flex;align-items:center;gap:6px}
+.cal-nav h2{margin:0 6px;min-width:150px;text-align:center;font:700 15px Manrope,sans-serif;color:#eeeef4}
+.cal-nav h2::first-letter{text-transform:uppercase}
+.cal-arrow,.cal-today{height:30px;border:1px solid #3a3845;border-radius:7px;background:#23222c;color:#d1cfda;cursor:pointer;font:600 11px 'DM Sans',sans-serif}
+.cal-arrow{width:30px;font-size:16px;line-height:1}
+.cal-today{padding:0 11px;margin-left:4px}
+.cal-arrow:hover,.cal-today:hover{background:#302c43}
+.cal-people .filter{display:flex;align-items:center;gap:5px}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--pc);display:inline-block}
+
+.cal-grid.month{display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+.cal-head{padding:9px 8px;font-size:9px;font-weight:700;letter-spacing:1.2px;color:#8e8c9a;text-transform:uppercase;border-bottom:1px solid #33313d}
+.cal-cell{min-height:104px;padding:6px 6px 8px;border-right:1px solid #2b2934;border-bottom:1px solid #2b2934;cursor:pointer;transition:background .12s;min-width:0}
+.cal-cell:nth-child(7n){border-right:0}
+.cal-cell:hover{background:#22212b}
+.cal-cell.weekend{background:#1a1922}
+.cal-cell.weekend:hover{background:#22212b}
+.cal-cell.out .cal-day span{color:#57556a}
+.cal-cell.drop{background:#2a2640;box-shadow:inset 0 0 0 2px #8b7cf0}
+.cal-day{display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;font-size:11px;color:#b1afbd}
+.cal-day span{display:grid;place-items:center;min-width:22px;height:22px;border-radius:50%}
+.cal-cell.today .cal-day span{background:#8b7cf0;color:#fff;font-weight:700}
+.cal-plus{opacity:0;color:#8b7cf0;font-size:12px;transition:opacity .12s}
+.cal-cell:hover .cal-plus{opacity:1}
+.cal-chips{display:flex;flex-direction:column;gap:3px}
+.cal-chip{display:flex;align-items:center;gap:4px;width:100%;min-width:0;padding:3px 6px;border:0;border-left:3px solid var(--pc);border-radius:4px;background:color-mix(in srgb,var(--pc) 18%,#1d1c25);color:#eeeef4;font:500 10.5px/1.35 'DM Sans',sans-serif;text-align:left;cursor:pointer}
+.cal-chip span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-chip i{font-style:normal;font-weight:800;color:#ff9b8f}
+.cal-chip:hover{background:color-mix(in srgb,var(--pc) 30%,#1d1c25)}
+.cal-chip[draggable=true]{cursor:grab}
+.cal-chip.dragging{opacity:.4}
+.cal-chip.done{opacity:.45}.cal-chip.done span{text-decoration:line-through}
+.cal-chip.late{box-shadow:inset 0 0 0 1px #e8786b;background:color-mix(in srgb,#e8786b 16%,#1d1c25)}
+.cal-more{border:0;background:none;padding:2px 4px;color:#a99ffa;font:600 10px 'DM Sans',sans-serif;text-align:left;cursor:pointer}
+.cal-foot{display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;padding:10px 16px;font-size:10px;color:#8e8c9a}
+.cal-foot span:empty{display:none}
+
+/* Haftalık liste (telefon) */
+.cal-grid.week{display:flex;flex-direction:column}
+.cal-wday{padding:10px 12px;border-bottom:1px solid #2b2934}
+.cal-wday.today{background:#211f2e;box-shadow:inset 3px 0 0 #8b7cf0}
+.cal-wday-head{display:flex;align-items:center;gap:8px;margin-bottom:7px;font-size:11px;color:#b1afbd}
+.cal-wday-head b{width:30px;color:#eeeef4;font-size:11px}
+.cal-wday.today .cal-wday-head b{color:#b6aafd}
+.cal-add{margin-left:auto;width:26px;height:26px;border:1px solid #3a3845;border-radius:7px;background:#23222c;color:#b6aafd;font-size:13px;cursor:pointer}
+.cal-wlist{display:flex;flex-direction:column;gap:5px;padding-left:38px}
+.cal-wlist .cal-chip{padding:7px 9px;font-size:12px}
+.cal-none{font-size:10px;color:#5f5d6c}
+
+@media(max-width:690px){
+  .task-tools{padding:9px 12px}
+  .chip-toggle{padding:0 9px;font-size:10px}
+  .form-row.three{grid-template-columns:1fr 1fr}
+  .form-row.three label:last-child{grid-column:1/-1}
+  .toast{bottom:78px}
+  .cal-toolbar{padding:12px}
+  .cal-nav{width:100%}
+  .cal-nav h2{flex:1;min-width:0;font-size:13px}
+  .cal-people{width:100%;justify-content:space-between}
+  .cal-people .filter{flex:1;justify-content:center}
+  .cal-hint{display:none}
+  .page-heading #cal-export{font-size:10px}
+}
+@media(max-width:390px){.cal-people .filter{padding:6px 4px}}
