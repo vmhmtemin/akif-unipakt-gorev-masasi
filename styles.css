@@ -188,3 +188,55 @@ dialog{background:#23222c;color:var(--ink)}.dialog label{color:#d1cfd9}.dialog i
   .page-heading #cal-export{font-size:10px}
 }
 @media(max-width:390px){.cal-people .filter{padding:6px 4px}}
+
+/* =====================================================================
+   v4 — Meet: kıpkırmızı, çok önemli
+   ===================================================================== */
+.heading-actions{display:flex;gap:8px;align-items:center}
+.meet-btn{display:inline-flex;align-items:center;gap:7px;border:0;border-radius:8px;padding:11px 16px;background:#e5252a;color:#fff;font:700 12px 'DM Sans',sans-serif;letter-spacing:.2px;cursor:pointer;box-shadow:0 4px 14px #e5252a55;transition:.15s}
+.meet-btn:hover{background:#ff2f35;transform:translateY(-1px);box-shadow:0 6px 18px #ff2f3566}
+.meet-btn span{font-size:9px;animation:meet-pulse 1.4s ease-in-out infinite}
+@keyframes meet-pulse{50%{opacity:.35}}
+
+/* Listede meet satırı */
+.task-row.meet{background:linear-gradient(90deg,#5a0f14,#3a0d12 55%,#2a0e12);box-shadow:inset 4px 0 0 #ff3b3f;border-bottom-color:#5a1a1f}
+.task-row.meet .task-title{color:#fff;font-weight:700}
+.task-row.meet .task-detail,.task-row.meet .task-who{color:#f3b4b4}
+.task-row.meet .due{color:#ffd0d0;font-weight:700}
+.task-row.meet .due.late{color:#ff9b8f}
+.task-row.meet .check{border-color:#ff8a8a}
+.task-row.meet .check:checked{background:#ff3b3f;border-color:#ff3b3f}
+.task-row.meet .delete-task{color:#f3a0a0}
+.task-row.meet.completed{background:#2a1517;box-shadow:inset 4px 0 0 #7a3a3d}
+.task-row.meet.completed .task-title{color:#a98a8c}
+.task-content:hover .task-title{color:#c7beff}
+.task-row.meet .task-content:hover .task-title{color:#ffd6d6}
+.badge-meet{display:inline-block;vertical-align:1px;margin-right:8px;padding:3px 7px;border-radius:5px;background:#ff3b3f;color:#fff;font-size:9px;font-weight:800;letter-spacing:.6px;text-transform:uppercase;box-shadow:0 0 0 3px #ff3b3f33}
+.meet-join{display:inline-block;padding:5px 11px;border-radius:6px;background:#fff;color:#c8161b;font-weight:800;font-size:10.5px;text-decoration:none;white-space:nowrap}
+.meet-join:hover{background:#ffe1e1}
+
+/* Takvimde meet */
+.cal-chip.meet{background:#e5252a;border-left-color:#ff8a8d;color:#fff;font-weight:700;box-shadow:0 2px 8px #e5252a55}
+.cal-chip.meet:hover{background:#ff3338}
+.cal-chip.meet i{color:#fff;font-size:7px}
+.cal-chip.meet b{font-weight:800;margin-right:2px}
+.cal-chip.meet.done{background:#5a2326;box-shadow:none}
+
+/* Meet formu */
+.dialog.is-meet{box-shadow:0 0 0 2px #ff3b3f,0 20px 70px #e5252a40}
+.dialog.is-meet .eyebrow{color:#ff6b6e}
+.dialog.is-meet #dialog-submit{background:#e5252a;box-shadow:0 3px 10px #e5252a55}
+.dialog.is-meet #dialog-submit:hover{background:#ff2f35}
+.meet-fields{margin:-2px 0 4px;padding:2px 14px 12px;border:1px solid #5a1a1f;border-radius:10px;background:#2a1215}
+.meet-fields label{margin:12px 0}
+.meet-new{display:inline-block;margin-right:8px;color:#ff8a8d;font-size:11px;font-weight:700;text-decoration:none}
+.meet-new:hover{text-decoration:underline}
+.meet-new-hint{font-size:10px;color:#a98a8c}
+.dialog input[type=time]{color-scheme:dark}
+
+@media(max-width:690px){
+  .heading-actions{flex-direction:column;align-items:stretch;gap:6px}
+  .meet-btn{padding:10px 11px;font-size:10px;justify-content:center;white-space:nowrap}
+  .meet-join{padding:4px 8px}
+  .meet-fields{padding:2px 10px 10px}
+}

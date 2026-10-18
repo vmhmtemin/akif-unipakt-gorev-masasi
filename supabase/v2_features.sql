@@ -11,16 +11,23 @@
 --   * tasks.updated_at    eşzamanlı düzenleme kontrolü için
 --   * update_task  : görevi düzenler; arada başkası değiştirdiyse TASK_CONFLICT
 --   * restore_task : silinen görevi "Geri al" ile aynen geri koyar
+--   * tasks.kind 'task' | 'meet', meet_time (saat), meet_link (https bağlantısı)
 -- =============================================================================
 
 alter table public.tasks add column if not exists priority     text not null default 'normal';
 alter table public.tasks add column if not exists created_by   text;
 alter table public.tasks add column if not exists completed_by text;
 alter table public.tasks add column if not exists updated_at   timestamptz not null default now();
+alter table public.tasks add column if not exists kind         text not null default 'task';
+alter table public.tasks add column if not exists meet_time    time;
+alter table public.tasks add column if not exists meet_link    text;
 
 do $$ begin
   if not exists (select 1 from pg_constraint where conname = 'tasks_priority_check') then
     alter table public.tasks add constraint tasks_priority_check check (priority in ('normal','urgent'));
+  end if;
+  if not exists (select 1 from pg_constraint where conname = 'tasks_kind_check') then
+    alter table public.tasks add constraint tasks_kind_check check (kind in ('task','meet'));
   end if;
 end $$;
 
@@ -36,6 +43,13 @@ begin
   if char_length(trim(coalesce(p_task->>'assignee',''))) not between 1 and 60 then raise exception 'INVALID_TASK:assignee'; end if;
   if coalesce(p_task->>'priority','normal') not in ('normal','urgent') then raise exception 'INVALID_TASK:priority'; end if;
   if nullif(p_task->>'due','') is not null and (p_task->>'due') !~ '^\d{4}-\d{2}-\d{2}$' then raise exception 'INVALID_TASK:due'; end if;
+  if coalesce(p_task->>'kind','task') not in ('task','meet') then raise exception 'INVALID_TASK:kind'; end if;
+  if coalesce(p_task->>'kind','task') = 'meet' then
+    -- Meet: tarih ve saat zorunlu; bağlantı yalnızca https olabilir
+    if nullif(p_task->>'due','') is null then raise exception 'INVALID_TASK:meet_date'; end if;
+    if coalesce(p_task->>'meet_time','') !~ '^([01]\d|2[0-3]):[0-5]\d(:00)?$' then raise exception 'INVALID_TASK:meet_time'; end if;
+  end if;
+  if nullif(p_task->>'meet_link','') is not null and ((p_task->>'meet_link') !~ '^https://[^\s"''<>]+$' or char_length(p_task->>'meet_link') > 300) then raise exception 'INVALID_TASK:meet_link'; end if;
 end;
 $$;
 revoke all on function public._validate_task(jsonb) from public, anon, authenticated;
@@ -60,10 +74,11 @@ declare v_profile text := public._pin_session_profile(p_session_token);
 begin
   if v_profile is null then raise exception 'Access denied'; end if;
   perform public._validate_task(p_task);
-  insert into public.tasks(id,title,detail,assignee,due,priority,done,created_at,completed_at,created_by,updated_at)
+  insert into public.tasks(id,title,detail,assignee,due,priority,done,created_at,completed_at,created_by,updated_at,kind,meet_time,meet_link)
   values (
     p_task->>'id', trim(p_task->>'title'), coalesce(p_task->>'detail',''), trim(p_task->>'assignee'),
-    nullif(p_task->>'due','')::date, coalesce(p_task->>'priority','normal'), false, now(), null, v_profile, now()
+    nullif(p_task->>'due','')::date, coalesce(p_task->>'priority','normal'), false, now(), null, v_profile, now(),
+    coalesce(p_task->>'kind','task'), nullif(p_task->>'meet_time','')::time, nullif(p_task->>'meet_link','')
   )
   on conflict (id) do nothing;
   return found;
@@ -85,7 +100,8 @@ begin
   if p_expected is not null and v_current is distinct from p_expected then raise exception 'TASK_CONFLICT'; end if;
   update public.tasks set
     title = trim(p_task->>'title'), detail = coalesce(p_task->>'detail',''), assignee = trim(p_task->>'assignee'),
-    due = nullif(p_task->>'due','')::date, priority = coalesce(p_task->>'priority','normal'), updated_at = v_now
+    due = nullif(p_task->>'due','')::date, priority = coalesce(p_task->>'priority','normal'), updated_at = v_now,
+    kind = coalesce(p_task->>'kind','task'), meet_time = nullif(p_task->>'meet_time','')::time, meet_link = nullif(p_task->>'meet_link','')
   where id = p_task->>'id';
   return v_now;
 end;
@@ -117,7 +133,7 @@ as $$
 begin
   if not public._has_valid_pin_session(p_session_token) then raise exception 'Access denied'; end if;
   perform public._validate_task(p_task);
-  insert into public.tasks(id,title,detail,assignee,due,priority,done,created_at,completed_at,created_by,completed_by,updated_at)
+  insert into public.tasks(id,title,detail,assignee,due,priority,done,created_at,completed_at,created_by,completed_by,updated_at,kind,meet_time,meet_link)
   values (
     p_task->>'id', trim(p_task->>'title'), coalesce(p_task->>'detail',''), trim(p_task->>'assignee'),
     nullif(p_task->>'due','')::date, coalesce(p_task->>'priority','normal'),
@@ -126,7 +142,8 @@ begin
     case when coalesce((p_task->>'done')::boolean, false) then nullif(p_task->>'completed_at','')::timestamptz end,
     case when p_task->>'created_by' in ('akif','mehmet','ugur') then p_task->>'created_by' end,
     case when coalesce((p_task->>'done')::boolean, false) and p_task->>'completed_by' in ('akif','mehmet','ugur') then p_task->>'completed_by' end,
-    clock_timestamp()
+    clock_timestamp(),
+    coalesce(p_task->>'kind','task'), nullif(p_task->>'meet_time','')::time, nullif(p_task->>'meet_link','')
   )
   on conflict (id) do nothing;
   return found;

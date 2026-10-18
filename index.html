@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f8f8f5">
   <title>Unipakt Görev Masası</title>
-  <link rel="stylesheet" href="styles.css?v=3">
+  <link rel="stylesheet" href="styles.css?v=4">
 </head>
 <body>
   <section id="code-gate" class="profile-picker code-gate" aria-labelledby="pin-title">
@@ -45,7 +45,7 @@
     <main class="main">
       <header class="topbar"><div class="crumb">Unipakt <span>/</span> <b id="crumb-view">Görevler</b></div><button id="profile-switch" class="profile" aria-label="Profil değiştir"><div id="profile-avatar" class="avatar">A</div><div><strong id="profile-name">Akif</strong><small>Unipakt ekibi</small></div><span class="chevron">⌄</span></button></header>
       <section id="tasks-view" class="view">
-        <div class="page-heading"><div><div class="eyebrow">EKİP ÇALIŞMA ALANI</div><h1>Görevler</h1><p>İşleri yaz, takip et, tamamlananları raporla.</p></div><button class="primary" id="open-task" title="Yeni görev (N)">＋ Yeni görev</button></div>
+        <div class="page-heading"><div><div class="eyebrow">EKİP ÇALIŞMA ALANI</div><h1>Görevler</h1><p>İşleri yaz, takip et, tamamlananları raporla.</p></div><div class="heading-actions"><button class="meet-btn" id="open-meet" title="Meet oluştur (M)"><span aria-hidden="true">●</span> Meet oluştur</button><button class="primary" id="open-task" title="Yeni görev (N)">＋ Yeni görev</button></div></div>
         <div class="summary-grid">
           <article class="summary-card"><span class="summary-icon violet">▦</span><div><small>Açık görev</small><strong id="stat-open">0</strong></div><span class="summary-foot">Tamamlanmayı bekliyor</span></article>
           <article class="summary-card"><span class="summary-icon green">✓</span><div><small>Bugün tamamlanan</small><strong id="stat-done">0</strong></div><span class="summary-foot">Güzel iş, devam!</span></article>
@@ -75,10 +75,10 @@
       <footer>Unipakt Görev Masası <span>·</span> İşler yolunda.</footer>
     </main>
   </div>
-  <dialog id="task-dialog" class="dialog" aria-labelledby="dialog-title"><form id="task-form"><div class="dialog-head"><div><span class="eyebrow" id="dialog-eyebrow">YENİ İŞ</span><h2 id="dialog-title">Görev oluştur</h2></div><button type="button" class="close" id="close-dialog" aria-label="Kapat">×</button></div><label>Görev adı<input name="title" required maxlength="120" placeholder="Örn. Haftalık stok kontrolünü yap"></label><label>Detay <span class="optional">(isteğe bağlı)</span><textarea name="detail" rows="3" maxlength="400" placeholder="Görevle ilgili kısa bir açıklama..."></textarea></label><div class="form-row three"><label>Sorumlu<select name="assignee"></select></label><label>Öncelik<select name="priority"><option value="normal">Normal</option><option value="urgent">Acil</option></select></label><label>Son tarih<input name="due" type="date"></label></div><p id="task-form-error" class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary" id="cancel-dialog">Vazgeç</button><button type="submit" class="primary" id="dialog-submit">Görevi ekle</button></div></form></dialog>
+  <dialog id="task-dialog" class="dialog" aria-labelledby="dialog-title"><form id="task-form"><div class="dialog-head"><div><span class="eyebrow" id="dialog-eyebrow">YENİ İŞ</span><h2 id="dialog-title">Görev oluştur</h2></div><button type="button" class="close" id="close-dialog" aria-label="Kapat">×</button></div><label><span id="title-label">Görev adı</span><input name="title" required maxlength="120" placeholder="Örn. Haftalık stok kontrolünü yap"></label><label>Detay <span class="optional">(isteğe bağlı)</span><textarea name="detail" rows="3" maxlength="400" placeholder="Görevle ilgili kısa bir açıklama..."></textarea></label><input type="hidden" name="kind" value="task"><div id="meet-fields" class="meet-fields hidden"><div class="form-row"><label>Saat<input name="meet_time" type="time" step="300"></label><label>Meet bağlantısı <span class="optional">(isteğe bağlı)</span><input name="meet_link" type="url" maxlength="300" placeholder="https://meet.google.com/..." pattern="https://.*"></label></div><a class="meet-new" href="https://meet.google.com/new" target="_blank" rel="noopener noreferrer">Google Meet’te yeni toplantı aç ↗</a><span class="meet-new-hint">Açılan bağlantıyı kopyalayıp yukarıya yapıştır.</span></div><div class="form-row three"><label>Sorumlu<select name="assignee"></select></label><label class="priority-field">Öncelik<select name="priority"><option value="normal">Normal</option><option value="urgent">Acil</option></select></label><label><span id="due-label">Son tarih</span><input name="due" type="date"></label></div><p id="task-form-error" class="form-error" role="alert"></p><div class="dialog-actions"><button type="button" class="secondary" id="cancel-dialog">Vazgeç</button><button type="submit" class="primary" id="dialog-submit">Görevi ekle</button></div></form></dialog>
   <div id="toast" class="toast hidden" role="status" aria-live="polite"><span id="toast-text"></span><button type="button" id="toast-action" class="hidden"></button></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.2/dist/umd/supabase.js" crossorigin="anonymous"></script>
-  <script src="calendar.js?v=3"></script>
-  <script src="app.js?v=3"></script>
+  <script src="calendar.js?v=4"></script>
+  <script src="app.js?v=4"></script>
 </body>
 </html>

@@ -38,17 +38,24 @@
     const map = new Map();
     for (const t of list) { if (!map.has(t.due)) map.set(t.due, []); map.get(t.due).push(t); }
     for (const items of map.values()) {
-      items.sort((a, b) => a.done - b.done || (b.priority === 'urgent') - (a.priority === 'urgent') || a.title.localeCompare(b.title, 'tr'));
+      // Meet'ler en üstte (saate göre), sonra acil görevler
+      items.sort((a, b) => a.done - b.done
+        || (b.kind === 'meet') - (a.kind === 'meet')
+        || (a.meetTime || '').localeCompare(b.meetTime || '')
+        || (b.priority === 'urgent') - (a.priority === 'urgent')
+        || a.title.localeCompare(b.title, 'tr'));
     }
     return map;
   }
 
   function chipHtml(t, today) {
     const late = !t.done && t.due < today;
-    const cls = ['cal-chip', `p-${opts.personKey(t.assignee)}`, t.done && 'done', late && 'late', t.priority === 'urgent' && 'urgent'].filter(Boolean).join(' ');
-    const tip = `${t.title} · ${t.assignee}${t.done ? ' · tamamlandı' : late ? ' · gecikti' : ''}`;
+    const meet = t.kind === 'meet';
+    const cls = ['cal-chip', `p-${opts.personKey(t.assignee)}`, meet && 'meet', t.done && 'done', late && !meet && 'late', t.priority === 'urgent' && !meet && 'urgent'].filter(Boolean).join(' ');
+    const tip = `${meet ? `MEET ${t.meetTime} · ` : ''}${t.title} · ${t.assignee}${t.done ? ' · tamamlandı' : late ? (meet ? ' · geçti' : ' · gecikti') : ''}`;
+    const mark = meet ? `<i aria-hidden="true">●</i><b>${esc(t.meetTime)}</b>` : t.priority === 'urgent' ? '<i aria-hidden="true">!</i>' : '';
     return `<button type="button" class="${cls}" data-task-id="${esc(t.id)}" draggable="${!t.done && !MOBILE.matches}" title="${esc(tip)}">`
-      + `${t.priority === 'urgent' ? '<i aria-hidden="true">!</i>' : ''}<span>${esc(t.title)}</span></button>`;
+      + `${mark}<span>${esc(t.title)}</span></button>`;
   }
 
   // ---------- Aylık ızgara ----------
@@ -130,13 +137,26 @@
     const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
     const lines = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Unipakt//Gorev Masasi//TR', 'CALSCALE:GREGORIAN', 'METHOD:PUBLISH', 'X-WR-CALNAME:Unipakt Görevler'];
     for (const t of list) {
-      const start = t.due.replaceAll('-', '');
-      const end = key(addDays(new Date(`${t.due}T12:00:00`), 1)).replaceAll('-', '');
-      const detail = [t.detail, `Sorumlu: ${t.assignee}`, t.priority === 'urgent' ? 'Öncelik: Acil' : ''].filter(Boolean).join('\n');
-      lines.push('BEGIN:VEVENT', `UID:${t.id}@unipakt-gorev-masasi`, `DTSTAMP:${stamp}`,
-        `DTSTART;VALUE=DATE:${start}`, `DTEND;VALUE=DATE:${end}`,
-        `SUMMARY:${icsText((t.priority === 'urgent' ? '❗ ' : '') + t.title)}`, `DESCRIPTION:${icsText(detail)}`,
-        'TRANSP:TRANSPARENT', 'END:VEVENT');
+      const meet = t.kind === 'meet' && t.meetTime;
+      const link = /^https:\/\/[^\s"'<>]+$/.test(t.meetLink || '') ? t.meetLink : '';
+      const detail = [t.detail, `Sorumlu: ${t.assignee}`, link && `Bağlantı: ${link}`, !meet && t.priority === 'urgent' ? 'Öncelik: Acil' : ''].filter(Boolean).join('\n');
+      lines.push('BEGIN:VEVENT', `UID:${t.id}@unipakt-gorev-masasi`, `DTSTAMP:${stamp}`);
+      if (meet) {
+        // Saatli etkinlik: tarayıcının saat diliminden UTC'ye çevrilir, 1 saat sürer
+        const begin = new Date(`${t.due}T${t.meetTime}:00`);
+        const utc = (d) => d.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
+        lines.push(`DTSTART:${utc(begin)}`, `DTEND:${utc(new Date(begin.getTime() + 3600000))}`,
+          `SUMMARY:${icsText(`🔴 MEET: ${t.title}`)}`, 'TRANSP:OPAQUE');
+        if (link) lines.push(`URL:${link}`, `LOCATION:${icsText(link)}`);
+      } else {
+        lines.push(`DTSTART;VALUE=DATE:${t.due.replaceAll('-', '')}`,
+          `DTEND;VALUE=DATE:${key(addDays(new Date(`${t.due}T12:00:00`), 1)).replaceAll('-', '')}`,
+          `SUMMARY:${icsText((t.priority === 'urgent' ? '❗ ' : '') + t.title)}`, 'TRANSP:TRANSPARENT');
+      }
+      lines.push(`DESCRIPTION:${icsText(detail)}`);
+      // Meet'ler için 15 dk önce hatırlatma (alt bileşen, özelliklerden sonra gelmeli)
+      if (meet) lines.push('BEGIN:VALARM', 'ACTION:DISPLAY', `DESCRIPTION:${icsText(t.title)}`, 'TRIGGER:-PT15M', 'END:VALARM');
+      lines.push('END:VEVENT');
     }
     lines.push('END:VCALENDAR');
     const blob = new Blob([lines.map(fold).join('\r\n') + '\r\n'], { type: 'text/calendar;charset=utf-8' });

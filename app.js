@@ -34,6 +34,7 @@ let currentView = 'tasks';
 let pollTimer = null;
 let noteTimer = null;
 let editing = null;              // düzenlenen görev: { id, updatedAt } | null
+let serverHasMeet = null;        // v2 SQL çalıştırıldı mı (null: henüz bilinmiyor)
 
 // PIN ekranı durumu
 let pinMode = 'login';           // 'login' | 'setup' | 'change'
@@ -94,6 +95,10 @@ function taskErrorMessage(error) {
     detail: 'Detay en fazla 400 karakter olabilir.',
     assignee: 'Sorumlu 1–60 karakter olmalı.',
     priority: 'Öncelik geçersiz.',
+    kind: 'Kayıt türü geçersiz.',
+    meet_date: 'Meet için tarih seçmelisin.',
+    meet_time: 'Meet için saat seçmelisin.',
+    meet_link: 'Meet bağlantısı https:// ile başlamalı.',
     due: 'Son tarih geçersiz.',
     id: 'Görev kimliği geçersiz.',
   }[field] || 'Görev kaydedilemedi. Tekrar dene.';
@@ -169,13 +174,21 @@ function taskFromDb(row) {
     createdAt: row.created_at, completedAt: row.completed_at,
     createdBy: row.created_by || null, completedBy: row.completed_by || null,
     updatedAt: row.updated_at || null,
+    kind: row.kind === 'meet' ? 'meet' : 'task',
+    meetTime: row.meet_time ? String(row.meet_time).slice(0, 5) : '',
+    meetLink: row.meet_link || '',
   };
 }
+const isMeet = (task) => task.kind === 'meet';
+/** Bağlantı yalnızca https ise kullanılır (sayfaya zararlı bağlantı girmesin). */
+const safeLink = (url) => (/^https:\/\/[^\s"'<>]+$/.test(url || '') ? url : '');
 
 /** Sunucuya gönderilen görev alanları (düzenlenebilir olanlar). */
 const editablePayload = (task) => ({
   id: task.id, title: task.title, detail: task.detail || '', assignee: task.assignee,
   due: task.due || null, priority: task.priority || 'normal',
+  kind: task.kind || 'task', meet_time: isMeet(task) ? task.meetTime || null : null,
+  meet_link: isMeet(task) ? task.meetLink || null : null,
 });
 
 async function refreshTasks() {
@@ -183,6 +196,7 @@ async function refreshTasks() {
   const list = await rpc('list_tasks', { p_session_token: accessToken });
   if (list.expired) return;
   if (list.error) { setSyncStatus('Bağlantı bekleniyor', true); return; }
+  if (list.data?.length) serverHasMeet = 'kind' in list.data[0];
   tasks = (list.data || []).map(taskFromDb);
 
   const note = await rpc('get_profile_note', { p_session_token: accessToken, p_profile_id: activeProfile });
@@ -388,8 +402,9 @@ const longDate = (value) => new Intl.DateTimeFormat('tr-TR', { day: 'numeric', m
  */
 function sortOpen(list) {
   const today = todayKey();
-  const attention = (t) => ((t.due && t.due <= today) || t.priority === 'urgent' ? 0 : 1);
+  const attention = (t) => (isMeet(t) ? -1 : (t.due && t.due <= today) || t.priority === 'urgent' ? 0 : 1);
   return list.sort((a, b) => attention(a) - attention(b)
+    || (isMeet(a) && isMeet(b) ? `${a.due} ${a.meetTime}`.localeCompare(`${b.due} ${b.meetTime}`) : 0)
     || (b.priority === 'urgent') - (a.priority === 'urgent')
     || (a.due || '9999-12-31').localeCompare(b.due || '9999-12-31')
     || (b.createdAt || '').localeCompare(a.createdAt || ''));
@@ -417,15 +432,21 @@ function taskRowHtml(task) {
   const late = !task.done && task.due && task.due < today;
   const soon = !task.done && task.due === today;
   const urgent = task.priority === 'urgent';
-  const due = task.due ? `<span class="due ${late ? 'late' : soon ? 'soon' : ''}">${late ? 'Gecikti · ' : soon ? 'Bugün · ' : ''}${dateLabel(task.due)}</span>` : '';
+  const meet = isMeet(task);
+  const when = meet && task.meetTime ? ` · ${task.meetTime}` : '';
+  const lateText = meet ? 'Geçti · ' : 'Gecikti · ';
+  const due = task.due ? `<span class="due ${late ? 'late' : soon ? 'soon' : ''}">${late ? lateText : soon ? 'Bugün · ' : ''}${dateLabel(task.due)}${when}</span>` : '';
+  const link = meet && !task.done ? safeLink(task.meetLink) : '';
+  const join = link ? `<a class="meet-join" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Katıl</a>` : '';
+  const badge = meet ? '<span class="badge-meet">● Meet</span>' : urgent ? '<span class="badge-urgent">Acil</span>' : '';
   const who = whoLine(task);
-  return `<div class="task-row ${task.done ? 'completed' : ''} ${urgent && !task.done ? 'urgent' : ''}">`
+  return `<div class="task-row ${task.done ? 'completed' : ''} ${urgent && !task.done && !meet ? 'urgent' : ''} ${meet ? 'meet' : ''}">`
     + `<input class="check" type="checkbox" data-toggle="${id}" ${task.done ? 'checked' : ''} aria-label="${task.done ? 'Tamamlandı' : 'Tamamlandı olarak işaretle'}">`
     + `<button type="button" class="task-content" data-edit="${id}" title="Düzenle">`
-    + `<span class="task-title">${urgent ? '<span class="badge-urgent">Acil</span>' : ''}${escapeHtml(task.title)}</span>`
+    + `<span class="task-title">${badge}${escapeHtml(task.title)}</span>`
     + `${task.detail ? `<span class="task-detail">${escapeHtml(task.detail)}</span>` : ''}`
     + `${who ? `<span class="task-who">${escapeHtml(who)}</span>` : ''}</button>`
-    + `<div class="task-meta">${due}<span class="assignee p-${personKey(task.assignee)}">${escapeHtml(task.assignee)}</span></div>`
+    + `<div class="task-meta">${join}${due}<span class="assignee p-${personKey(task.assignee)}">${escapeHtml(task.assignee)}</span></div>`
     + `<button class="delete-task" data-delete="${id}" aria-label="Görevi sil" title="Görevi sil">×</button></div>`;
 }
 
@@ -498,18 +519,36 @@ function fillAssigneeOptions(selected) {
   form.elements.assignee.value = selected || profileName(activeProfile);
 }
 
+/** Formu görev ya da meet moduna geçirir. */
+function setFormKind(kind, isEdit) {
+  const meet = kind === 'meet';
+  form.elements.kind.value = meet ? 'meet' : 'task';
+  $('#task-dialog').classList.toggle('is-meet', meet);
+  $('#meet-fields').classList.toggle('hidden', !meet);
+  form.querySelector('.priority-field').classList.toggle('hidden', meet);
+  form.elements.meet_time.required = meet;
+  form.elements.due.required = meet;
+  $('#due-label').textContent = meet ? 'Tarih' : 'Son tarih';
+  $('#title-label').textContent = meet ? 'Meet adı' : 'Görev adı';
+  form.elements.title.placeholder = meet ? 'Örn. Sponsor görüşmesi' : 'Örn. Haftalık stok kontrolünü yap';
+  $('#dialog-eyebrow').textContent = meet ? (isEdit ? 'MEET · DÜZENLE' : 'ÇOK ÖNEMLİ') : (isEdit ? 'DÜZENLE' : 'YENİ İŞ');
+  $('#dialog-title').textContent = meet ? (isEdit ? 'Meet’i düzenle' : 'Meet oluştur') : (isEdit ? 'Görevi düzenle' : 'Görev oluştur');
+  $('#dialog-submit').textContent = isEdit ? 'Kaydet' : meet ? 'Meet’i oluştur' : 'Görevi ekle';
+}
+
 /**
  * @param {object} [task] verilirse düzenleme modu
  * @param {string} [due] yeni görev için hazır son tarih (takvimden)
+ * @param {'task'|'meet'} [kind] yeni kaydın türü
  */
-function openDialog(task, due) {
+function openDialog(task, due, kind = 'task') {
   editing = task ? { id: task.id, updatedAt: task.updatedAt } : null;
   form.reset();
   $('#task-form-error').textContent = '';
-  $('#dialog-eyebrow').textContent = task ? 'DÜZENLE' : 'YENİ İŞ';
-  $('#dialog-title').textContent = task ? 'Görevi düzenle' : 'Görev oluştur';
-  $('#dialog-submit').textContent = task ? 'Kaydet' : 'Görevi ekle';
-  fillAssigneeOptions(task ? task.assignee : profileName(activeProfile));
+  setFormKind(task ? task.kind : kind, Boolean(task));
+  fillAssigneeOptions(task ? task.assignee : kind === 'meet' ? 'Herkes' : profileName(activeProfile));
+  form.elements.meet_time.value = task?.meetTime || '';
+  form.elements.meet_link.value = task?.meetLink || '';
   form.elements.title.value = task?.title || '';
   form.elements.detail.value = task?.detail || '';
   form.elements.due.value = task?.due || due || '';
@@ -520,6 +559,7 @@ function openDialog(task, due) {
 const closeDialog = () => { editing = null; $('#task-dialog').close(); };
 
 $('#open-task').addEventListener('click', () => openDialog());
+$('#open-meet').addEventListener('click', () => openDialog(null, todayKey(), 'meet'));
 $('#empty-add').addEventListener('click', () => openDialog());
 $('#close-dialog').addEventListener('click', closeDialog);
 $('#cancel-dialog').addEventListener('click', closeDialog);
@@ -534,7 +574,16 @@ form.addEventListener('submit', async (event) => {
     assignee: data.get('assignee') || profileName(activeProfile),
     due: data.get('due') || '',
     priority: data.get('priority') === 'urgent' ? 'urgent' : 'normal',
+    kind: data.get('kind') === 'meet' ? 'meet' : 'task',
+    meetTime: data.get('meet_time') || '',
+    meetLink: (data.get('meet_link') || '').trim(),
   };
+  if (fields.kind === 'meet') {
+    fields.priority = 'urgent';
+    if (!fields.due || !fields.meetTime) { $('#task-form-error').textContent = 'Meet için tarih ve saat seçmelisin.'; return; }
+    if (fields.meetLink && !safeLink(fields.meetLink)) { $('#task-form-error').textContent = 'Meet bağlantısı https:// ile başlamalı.'; return; }
+    if (serverHasMeet === false) { $('#task-form-error').textContent = 'Meet için önce Supabase güncellemesini (v2_features.sql) çalıştırın.'; return; }
+  }
   const submit = $('#dialog-submit');
   submit.disabled = true;
 
@@ -557,7 +606,7 @@ form.addEventListener('submit', async (event) => {
     closeDialog();
     render();
     setSyncStatus('Ortak kayıt açık');
-    toast('Görev güncellendi.');
+    toast(fields.kind === 'meet' ? 'Meet güncellendi.' : 'Görev güncellendi.');
     return;
   }
 
@@ -584,12 +633,13 @@ form.addEventListener('submit', async (event) => {
 
 // "N" tuşu: yeni görev
 document.addEventListener('keydown', (event) => {
-  if (event.key !== 'n' && event.key !== 'N') return;
+  const keyName = event.key.toLowerCase();
+  if (keyName !== 'n' && keyName !== 'm') return;
   if (event.metaKey || event.ctrlKey || event.altKey) return;
   if (event.target.closest('input, textarea, select, [contenteditable]')) return;
   if ($('#task-dialog').open || $('.shell').classList.contains('hidden')) return;
   event.preventDefault();
-  openDialog();
+  if (keyName === 'm') openDialog(null, todayKey(), 'meet'); else openDialog();
 });
 
 // ---------- Görev listesi: düzenle / tamamla / sil ----------
@@ -628,7 +678,7 @@ $('#task-list').addEventListener('click', async (event) => {
   tasks = tasks.filter((t) => t.id !== id);
   render();
   setSyncStatus('Ortak kayıt açık');
-  toast(`"${task.title}" silindi.`, { label: 'Geri al', onClick: () => restoreTask(task) }, UNDO_MS);
+  toast(`${isMeet(task) ? 'Meet' : 'Görev'} silindi: "${task.title}"`, { label: 'Geri al', onClick: () => restoreTask(task) }, UNDO_MS);
 });
 
 /** Silinen görevi aynen geri koyar. */
@@ -682,9 +732,9 @@ const csvCell = (value) => {
 $('#export-report').addEventListener('click', () => {
   const stamp = new Intl.DateTimeFormat('tr-TR', { dateStyle: 'short', timeStyle: 'short' });
   const rows = [
-    ['Görev', 'Detay', 'Sorumlu', 'Öncelik', 'Ekleyen', 'Tamamlayan', 'Tamamlanma tarihi'],
+    ['Görev', 'Tür', 'Detay', 'Sorumlu', 'Öncelik', 'Ekleyen', 'Tamamlayan', 'Tamamlanma tarihi'],
     ...tasks.filter((t) => t.done).map((t) => [
-      t.title, t.detail, t.assignee, t.priority === 'urgent' ? 'Acil' : 'Normal',
+      t.title, isMeet(t) ? `Meet ${t.due} ${t.meetTime}` : 'Görev', t.detail, t.assignee, t.priority === 'urgent' ? 'Acil' : 'Normal',
       profileName(t.createdBy), profileName(t.completedBy),
       t.completedAt ? stamp.format(new Date(t.completedAt)) : '',
     ]),

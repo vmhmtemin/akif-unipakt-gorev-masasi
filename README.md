@@ -14,6 +14,7 @@ Kod unutulursa mevcut kodla giriş gerekir; yönetici kurtarma akışı bu sür�
 
 - **Görevler:** Göreve tıklayınca düzenlenir. Sorumlu (Akif, Mehmet, Uğur, Herkes), öncelik (Normal / Acil) ve son tarih seçilir. Arama ve “Bana atananlar” filtresi var. Açık görevler sırası: geciken, bugün biten ve acil olanlar üstte, sonra son tarihe göre. Kimin eklediği ve tamamladığı otomatik kaydedilir. Silinen görev 5 saniye içinde “Geri al” ile geri gelir. Klavyede `N` yeni görev açar.
 - **Takvim:** Son tarihli görevler aylık ızgarada, telefonda haftalık listede görünür; renkler sorumlu kişiye göredir, gecikenler kırmızı çerçeveli, tamamlananlar soluktur. Boş güne tıklamak o tarihli yeni görev açar; bilgisayarda görev başka bir güne sürüklenebilir. “Takvime aktar” açık görevleri `.ics` dosyası olarak indirir (iPhone/Google Takvim’e tek seferlik eklenir, sonradan otomatik güncellenmez).
+- **Meet:** “Meet oluştur” düğmesi (ya da `M` tuşu) tarih, saat ve isteğe bağlı Google Meet bağlantısıyla toplantı ekler. Meet’ler listede en üstte, kıpkırmızı satır ve “Katıl” düğmesiyle; takvimde saatiyle kırmızı etiket olarak görünür. `.ics` aktarımında saatli etkinlik olur ve 15 dk önce hatırlatır. Bağlantı yalnızca `https://` olabilir. Site Meet bağlantısını kendisi üretemez; formdaki “Google Meet’te yeni toplantı aç” ile açılan bağlantı kopyalanıp yapıştırılır.
 - **Eşzamanlı düzenleme:** İki kişi aynı görevi aynı anda düzenlerse ikinci kayıt reddedilir, liste yenilenir ve “tekrar dene” uyarısı çıkar; kimsenin değişikliği habersizce ezilmez.
 
 ## Güvenlik notları
@@ -33,7 +34,7 @@ app.js                           Uygulama mantığı (Supabase RPC çağrıları
 calendar.js                      Takvim sekmesi ve .ics dışa aktarma
 supabase/schema.sql              İlk kurulum
 supabase/security_hardening.sql  Güvenlik güncellemesi (schema.sql’den sonra)
-supabase/v2_features.sql         Düzenleme, öncelik, kim yaptı, geri alma (hardening’den sonra)
+supabase/v2_features.sql         Düzenleme, öncelik, kim yaptı, geri alma, Meet (hardening’den sonra)
 supabase/migrate_profile_pins.sql Eski ortak koddan kişisel kodlara geçiş
 ```
 
