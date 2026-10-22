@@ -5,7 +5,8 @@
      onDayClick(dateKey)        boş güne tıklandı  → yeni görev
      onTaskClick(taskId)        göreve tıklandı    → düzenle
      onMove(taskId, dateKey)    görev sürüklendi   → son tarihi değiştir
-     personKey(assigneeName)    'akif' | 'mehmet' | 'ugur' | 'herkes' | 'other'
+     personKey(task)            görevin sorumlu kimliği (renk sınıfı ve filtre için)
+     people()                   [{id, name}] kişi filtresi düğmeleri
      notify(message)            kısa bilgi mesajı
    Telefonda (≤690px) aylık ızgara yerine haftalık liste gösterilir.
    ============================================================================= */
@@ -32,7 +33,7 @@
 
   // ---------- Veri ----------
   function visibleTasks() {
-    return tasks.filter((t) => t.due && (person === 'all' || opts.personKey(t.assignee) === person));
+    return tasks.filter((t) => t.due && (person === 'all' || opts.personKey(t) === person));
   }
   function byDay(list) {
     const map = new Map();
@@ -51,11 +52,23 @@
   function chipHtml(t, today) {
     const late = !t.done && t.due < today;
     const meet = t.kind === 'meet';
-    const cls = ['cal-chip', `p-${opts.personKey(t.assignee)}`, meet && 'meet', t.done && 'done', late && !meet && 'late', t.priority === 'urgent' && !meet && 'urgent'].filter(Boolean).join(' ');
+    const cls = ['cal-chip', `p-${opts.personKey(t)}`, meet && 'meet', t.done && 'done', late && !meet && 'late', t.priority === 'urgent' && !meet && 'urgent'].filter(Boolean).join(' ');
     const tip = `${meet ? `MEET ${t.meetTime} · ` : ''}${t.title} · ${t.assignee}${t.done ? ' · tamamlandı' : late ? (meet ? ' · geçti' : ' · gecikti') : ''}`;
     const mark = meet ? `<i aria-hidden="true">●</i><b>${esc(t.meetTime)}</b>` : t.priority === 'urgent' ? '<i aria-hidden="true">!</i>' : '';
     return `<button type="button" class="${cls}" data-task-id="${esc(t.id)}" draggable="${!t.done && !MOBILE.matches}" title="${esc(tip)}">`
       + `${mark}<span>${esc(t.title)}</span></button>`;
+  }
+
+  // ---------- Kişi filtresi (ekip listesinden) ----------
+  let peopleSig = '';
+  function renderPeople() {
+    const people = opts.people();
+    const sig = people.map((p) => `${p.id}:${p.name}`).join('|');
+    if (sig === peopleSig) return;
+    peopleSig = sig;
+    if (person !== 'all' && !people.some((p) => p.id === person)) person = 'all';
+    $('#cal-people').innerHTML = [`<button type="button" class="filter${person === 'all' ? ' active' : ''}" data-person="all">Herkes</button>`,
+      ...people.map((p) => `<button type="button" class="filter${person === p.id ? ' active' : ''}" data-person="${esc(p.id)}"><i class="dot p-${esc(p.id)}"></i>${esc(p.name)}</button>`)].join('');
   }
 
   // ---------- Aylık ızgara ----------
@@ -110,8 +123,9 @@
     const today = key(new Date());
     const list = visibleTasks();
     const map = byDay(list);
+    renderPeople();
     if (MOBILE.matches) renderWeek(map, today); else renderMonth(map, today);
-    const undated = tasks.filter((t) => !t.due && !t.done && (person === 'all' || opts.personKey(t.assignee) === person)).length;
+    const undated = tasks.filter((t) => !t.due && !t.done && (person === 'all' || opts.personKey(t) === person)).length;
     $('#cal-undated').textContent = undated ? `Son tarihi olmayan ${undated} açık görev takvimde görünmez.` : '';
   }
 

@@ -4,43 +4,62 @@
    Tarayıcıda yalnızca publishable key bulunur; oturum anahtarı sadece
    bellekte tutulur (sayfa kapanınca biter). Görev ve notlar cihaza
    kaydedilmez. Takvim sekmesi calendar.js içindedir.
+
+   Roller (sunucuda zorunlu tutulur, burada yalnızca arayüz için yansıtılır):
+     owner  (Akif)          herkese görev atar, Merkez üyesi ekler
+     merkez (Mehmet, Uğur)  kendine ve Yönetim Kurulu'na atar, YK üyesi ekler
+     yk     (Yönetim Kurulu) yalnızca kendi görevlerini görür ve ekler
    ============================================================================= */
 
 // ---------- Ayarlar ----------
-const PROFILES = {
-  akif:   { name: 'Akif',   initial: 'A' },
-  mehmet: { name: 'Mehmet', initial: 'M' },
-  ugur:   { name: 'Uğur',   initial: 'U' },
-};
-const ASSIGNEES = ['Akif', 'Mehmet', 'Uğur', 'Herkes'];
 const SUPABASE_URL = 'https://jbheyqmqickfuuhyesog.supabase.co';
 const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_jfLnVG_RBLbzj8-HftUFlA_xgZ0Ag6X';
 const POLL_MS = 8000;
 const NOTE_MAX = 600;
 const UNDO_MS = 5000;
-const VIEW_LABELS = { tasks: 'Görevler', calendar: 'Takvim', reports: 'Raporlar' };
+const MERKEZ = 'merkez'; // "Tüm Merkez" ortak sorumlu kimliği
+const VIEW_LABELS = { tasks: 'Görevler', calendar: 'Takvim', reports: 'Raporlar', team: 'Ekip' };
+const ROLE_LABELS = { owner: 'Merkez · Yönetici', merkez: 'Merkez', yk: 'Yönetim Kurulu' };
+const STATUSES = [
+  { id: 'todo', label: 'Yapılacak' },
+  { id: 'doing', label: 'Devam ediyor' },
+  { id: 'waiting', label: 'Beklemede' },
+  { id: 'done', label: 'Tamamlandı' },
+];
+// v3 SQL çalıştırılmadıysa kullanılan eski sabit profiller
+const LEGACY_PROFILES = [
+  { id: 'akif', name: 'Akif', initial: 'A', color: '#8b7cf0', role: 'owner' },
+  { id: 'mehmet', name: 'Mehmet', initial: 'M', color: '#45b5a6', role: 'merkez' },
+  { id: 'ugur', name: 'Uğur', initial: 'U', color: '#f0a75f', role: 'merkez' },
+];
 
 const db = window.supabase.createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY);
 
 // ---------- Durum ----------
-let activeProfile = null;        // ekranda seçili profil
-let authenticatedProfile = null; // oturum anahtarının ait olduğu profil
+let serverV3 = null;             // v3_team.sql çalıştırıldı mı
+let loginProfiles = [];          // giriş ekranındaki kişiler
+let activeProfile = null;        // seçilen profil kimliği
+let authenticatedProfile = null; // oturumun sahibi
 let accessToken = null;          // yalnızca bellekte
+let me = null;                   // { id, name, initial, role, color }
+let team = [];                   // ekip listesi (rollerle)
 let tasks = [];
 let filter = 'all';              // 'all' | 'open' | 'done'
-let onlyMine = false;
+let scope = 'mine';              // 'mine' | 'team'
+let layout = 'list';             // 'list' | 'board'
+let projectFilter = null;
 let searchQuery = '';
 let currentView = 'tasks';
 let pollTimer = null;
 let noteTimer = null;
 let editing = null;              // düzenlenen görev: { id, updatedAt } | null
-let serverHasMeet = null;        // v2 SQL çalıştırıldı mı (null: henüz bilinmiyor)
 
 // PIN ekranı durumu
 let pinMode = 'login';           // 'login' | 'setup' | 'change'
 let pinStage = 'first';          // 'first' | 'confirm'
 let pendingPin = '';
 let pinReturnToWorkspace = false;
+let pinForced = false;           // ilk girişte kod değiştirme zorunluluğu
 
 // ---------- Yardımcılar ----------
 const $ = (selector) => document.querySelector(selector);
@@ -49,17 +68,31 @@ const escapeHtml = (value = '') => String(value).replace(/[&<>"']/g, (char) => (
   { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]
 ));
 const lowerTr = (value) => String(value || '').toLocaleLowerCase('tr-TR');
+const safeId = (id) => (/^[a-z0-9-]{1,40}$/.test(id || '') ? id : 'other');
+const safeColor = (c) => (/^#[0-9a-fA-F]{6}$/.test(c || '') ? c : '#8e8c9a');
+const PIN_LEN = () => (serverV3 ? 6 : 4);
 
-/** Sorumlu adını renk/filtre anahtarına çevirir (eski serbest metinler dahil). */
-function personKey(name) {
+const person = (id) => (id === MERKEZ
+  ? { id: MERKEZ, name: 'Tüm Merkez', initial: 'TM', color: '#d986b4', role: 'merkez' }
+  : team.find((p) => p.id === id) || loginProfiles.find((p) => p.id === id) || null);
+const personName = (id) => person(id)?.name || '';
+const isLead = () => me && (me.role === 'owner' || me.role === 'merkez');
+
+/** Eski serbest metin sorumluları kimliğe çevirir (v3 öncesi kayıtlar için). */
+function legacyAssigneeId(name) {
   const n = lowerTr(name).trim();
-  if (n === 'akif') return 'akif';
-  if (n === 'mehmet') return 'mehmet';
   if (n === 'uğur' || n === 'ugur') return 'ugur';
-  if (n === 'herkes') return 'herkes';
-  return 'other';
+  if (n === 'akif' || n === 'mehmet') return n;
+  return MERKEZ;
 }
-const profileName = (key) => PROFILES[key]?.name || '';
+
+/** Ekipteki her kişi için renk sınıfı (.p-<kimlik>) üretir. */
+function applyPersonColors() {
+  const rules = [...team, person(MERKEZ)].map((p) => `.p-${safeId(p.id)}{--pc:${safeColor(p.color)}}`).join('');
+  let tag = $('#person-colors');
+  if (!tag) { tag = document.createElement('style'); tag.id = 'person-colors'; document.head.append(tag); }
+  tag.textContent = rules;
+}
 
 /** Eski sürümlerin cihazda bıraktığı görev/not kopyalarını siler. */
 function purgeLegacyStorage() {
@@ -87,19 +120,22 @@ const isSessionError = (error) => /Access denied/i.test(error?.message || '');
 function taskErrorMessage(error) {
   const msg = error?.message || '';
   if (/TASK_CONFLICT/.test(msg)) return 'Bu görev az önce başka biri tarafından değiştirildi. Liste yenilendi, tekrar dene.';
-  if (/TASK_NOT_FOUND/.test(msg)) return 'Bu görev silinmiş.';
-  if (isMissingSchema(error)) return 'Bu özellik için Supabase’de supabase/v2_features.sql çalıştırılmalı.';
+  if (/TASK_NOT_FOUND/.test(msg)) return 'Bu görev silinmiş ya da artık sana görünmüyor.';
+  if (/NOT_ALLOWED/.test(msg)) return 'Bu işlem için yetkin yok.';
+  if (isMissingSchema(error)) return 'Bu özellik için Supabase güncellemesi gerekiyor.';
   const field = /INVALID_TASK:(\w+)/.exec(msg)?.[1];
   return {
     title: 'Başlık 1–120 karakter olmalı.',
     detail: 'Detay en fazla 400 karakter olabilir.',
-    assignee: 'Sorumlu 1–60 karakter olmalı.',
+    assignee: 'Geçerli bir sorumlu seç.',
     priority: 'Öncelik geçersiz.',
     kind: 'Kayıt türü geçersiz.',
     meet_date: 'Meet için tarih seçmelisin.',
     meet_time: 'Meet için saat seçmelisin.',
     meet_link: 'Meet bağlantısı https:// ile başlamalı.',
     due: 'Son tarih geçersiz.',
+    status: 'Durum geçersiz.',
+    project: 'Proje adı en fazla 40 karakter olabilir.',
     id: 'Görev kimliği geçersiz.',
   }[field] || 'Görev kaydedilemedi. Tekrar dene.';
 }
@@ -136,6 +172,25 @@ function toast(text, action, duration = 3200) {
 }
 function hideToast() { clearTimeout(toastTimer); $('#toast').classList.add('hidden'); }
 
+// ---------- Yetkiler (sunucudaki kuralların arayüz yansıması) ----------
+/** Bu kişiye bu türde kayıt atayabilir miyim? */
+function canAssign(assigneeId, kind = 'task') {
+  if (!me) return false;
+  if (assigneeId === MERKEZ) return me.role === 'owner' || (me.role === 'merkez' && kind === 'meet');
+  const p = team.find((x) => x.id === assigneeId && x.active !== false);
+  if (!p) return false;
+  if (me.role === 'owner') return true;
+  if (me.role === 'merkez') return p.id === me.id || p.role === 'yk';
+  return p.id === me.id;
+}
+function canEdit(task) {
+  if (!me) return false;
+  if (me.role === 'owner') return true;
+  if (me.role === 'merkez') return task.createdBy === me.id || task.assigneeId === me.id || person(task.assigneeId)?.role === 'yk';
+  return task.createdBy === me.id && task.assigneeId === me.id;
+}
+const canDelete = (task) => me && (me.role === 'owner' || task.createdBy === me.id);
+
 // ---------- Oturum ----------
 function stopPolling() {
   if (pollTimer) clearInterval(pollTimer);
@@ -154,6 +209,7 @@ function expireSession() {
   hideToast();
   accessToken = null;
   authenticatedProfile = null;
+  me = null;
   tasks = [];
   if ($('#task-dialog').open) $('#task-dialog').close();
   showPinGate('login', true);
@@ -168,9 +224,12 @@ document.addEventListener('visibilitychange', () => {
 
 // ---------- Görevler: sunucu ----------
 function taskFromDb(row) {
+  const done = Boolean(row.done);
   return {
-    id: row.id, title: row.title, detail: row.detail || '', assignee: row.assignee,
-    due: row.due || '', done: row.done, priority: row.priority || 'normal',
+    id: row.id, title: row.title, detail: row.detail || '',
+    assignee: row.assignee, assigneeId: row.assignee_id || legacyAssigneeId(row.assignee),
+    due: row.due || '', done, priority: row.priority || 'normal',
+    status: row.status || (done ? 'done' : 'todo'), project: row.project || '',
     createdAt: row.created_at, completedAt: row.completed_at,
     createdBy: row.created_by || null, completedBy: row.completed_by || null,
     updatedAt: row.updated_at || null,
@@ -185,8 +244,9 @@ const safeLink = (url) => (/^https:\/\/[^\s"'<>]+$/.test(url || '') ? url : '');
 
 /** Sunucuya gönderilen görev alanları (düzenlenebilir olanlar). */
 const editablePayload = (task) => ({
-  id: task.id, title: task.title, detail: task.detail || '', assignee: task.assignee,
-  due: task.due || null, priority: task.priority || 'normal',
+  id: task.id, title: task.title, detail: task.detail || '',
+  assignee_id: task.assigneeId, assignee: personName(task.assigneeId) || task.assignee, // assignee: eski sürüm uyumu
+  due: task.due || null, priority: task.priority || 'normal', project: task.project || '',
   kind: task.kind || 'task', meet_time: isMeet(task) ? task.meetTime || null : null,
   meet_link: isMeet(task) ? task.meetLink || null : null,
 });
@@ -196,8 +256,9 @@ async function refreshTasks() {
   const list = await rpc('list_tasks', { p_session_token: accessToken });
   if (list.expired) return;
   if (list.error) { setSyncStatus('Bağlantı bekleniyor', true); return; }
-  if (list.data?.length) serverHasMeet = 'kind' in list.data[0];
   tasks = (list.data || []).map(taskFromDb);
+
+  if (serverV3 && isLead()) await loadTeam(); // yeni eklenen kişiler herkeste görünsün
 
   const note = await rpc('get_profile_note', { p_session_token: accessToken, p_profile_id: activeProfile });
   if (note.expired) return;
@@ -208,16 +269,7 @@ async function refreshTasks() {
 
 /** Yalnızca YENİ görevi gönderir; başkalarının görevlerine dokunmaz. */
 async function addTask(task) {
-  const payload = editablePayload(task);
-  let result = await rpc('add_task', { p_session_token: accessToken, p_task: payload });
-  // Güvenlik SQL'i henüz çalıştırılmadıysa: eski fonksiyonla sadece bu görevi gönder
-  if (result.error && isMissingSchema(result.error)) {
-    result = await rpc('upsert_task', {
-      p_session_token: accessToken,
-      p_task: { ...payload, done: false, created_at: task.createdAt, completed_at: null },
-    });
-  }
-  return result;
+  return rpc('add_task', { p_session_token: accessToken, p_task: editablePayload(task) });
 }
 
 /** Görevi düzenler. Arada başkası değiştirdiyse TASK_CONFLICT döner. */
@@ -225,10 +277,33 @@ async function updateTask(task, expectedUpdatedAt) {
   return rpc('update_task', { p_session_token: accessToken, p_task: editablePayload(task), p_expected: expectedUpdatedAt || null });
 }
 
+/** Durum değiştirir (pano, onay kutusu). Başarısız olursa eski hâline döner. */
+async function setStatus(task, status) {
+  if (task.status === status) return;
+  const before = { status: task.status, done: task.done, completedAt: task.completedAt, completedBy: task.completedBy };
+  task.status = status;
+  task.done = status === 'done';
+  task.completedAt = task.done ? (before.done ? before.completedAt : new Date().toISOString()) : null;
+  task.completedBy = task.done ? (before.done ? before.completedBy : me?.id) : null;
+  render();
+  let result;
+  if (serverV3) {
+    result = await rpc('set_task_status', { p_session_token: accessToken, p_task_id: task.id, p_status: status });
+    if (!result.error) task.updatedAt = result.data;
+  } else {
+    result = await rpc('update_task_state', { p_session_token: accessToken, p_task_id: task.id, p_done: task.done, p_completed_at: task.completedAt });
+  }
+  if (result.expired) return;
+  if (result.error) { Object.assign(task, before); toast(taskErrorMessage(result.error)); }
+  setSyncStatus(result.error ? 'Eşitleme başarısız' : 'Ortak kayıt açık', Boolean(result.error));
+  render();
+}
+
 /** Son tarihi değiştirir (takvimde sürükle-bırak). */
 async function moveTask(id, due) {
   const task = tasks.find((t) => t.id === id);
   if (!task) return;
+  if (!canEdit(task)) { toast('Bu görevin tarihini değiştirme yetkin yok.'); return; }
   const before = task.due;
   task.due = due;
   render();
@@ -245,17 +320,41 @@ async function moveTask(id, due) {
   toast(`"${task.title}" ${label} tarihine taşındı.`);
 }
 
+// ---------- Ekip ----------
+async function loadTeam() {
+  if (!serverV3) { team = LEGACY_PROFILES.map((p) => ({ ...p, active: true })); applyPersonColors(); return; }
+  const { data, error } = await rpc('list_team', { p_session_token: accessToken });
+  if (!error && data) { team = data; applyPersonColors(); }
+}
+
+/** Oturumun sahibini öğrenir; ilk girişte kod değişikliği gerekiyorsa söyler. */
+async function loadMe() {
+  if (!serverV3) {
+    me = { ...LEGACY_PROFILES.find((p) => p.id === activeProfile), mustChange: false };
+    return true;
+  }
+  const { data, error, expired } = await rpc('my_session', { p_session_token: accessToken });
+  if (expired || error || !data) return false;
+  me = { id: data.id, name: data.name, initial: data.initial, role: data.role, color: data.color, mustChange: data.must_change_pin };
+  return true;
+}
+
 // ---------- Çalışma alanı ----------
-async function openWorkspace(profileId) {
-  activeProfile = profileId;
-  const profile = PROFILES[profileId];
+async function openWorkspace() {
   $('#profile-picker').classList.add('hidden');
+  $('#code-gate').classList.add('hidden');
   $('.shell').classList.remove('hidden');
-  $('#profile-name').textContent = profile.name;
-  $('#profile-avatar').textContent = profile.initial;
-  $('.note-head span:last-of-type').textContent =
-    profileId === 'ugur' ? "UĞUR'UN NOTU" : `${profile.name.toLocaleUpperCase('tr-TR')}'İN NOTU`;
+  $('#profile-name').textContent = me.name;
+  $('#profile-avatar').textContent = me.initial;
+  $('#profile-role').textContent = ROLE_LABELS[me.role] || 'Unipakt ekibi';
+  $('.note-head span:last-of-type').textContent = `${me.name.toLocaleUpperCase('tr-TR')} · NOT`;
+  $('#nav-team').classList.toggle('hidden', !isLead() || !serverV3);
+  $('#scope-tabs').classList.toggle('hidden', !isLead());
+  $('#open-meet').classList.toggle('hidden', !isLead());
   setNoteText('');
+  scope = 'mine';
+  projectFilter = null;
+  syncSegments();
   setView('tasks');
   setFilter('all');
   tasks = [];
@@ -263,11 +362,24 @@ async function openWorkspace(profileId) {
   setSyncStatus('Bağlanıyor…');
 
   stopPolling();
+  await loadTeam();
   await refreshTasks();
   startPolling();
 }
 
-// ---------- PIN ekranı ----------
+// ---------- Giriş ekranı ----------
+async function loadLoginProfiles() {
+  const { data, error } = await db.rpc('list_login_profiles');
+  serverV3 = !error;
+  loginProfiles = !error && data?.length ? data : LEGACY_PROFILES;
+  $('#profile-options').innerHTML = loginProfiles.map((p) => `<button class="profile-option" data-profile="${escapeHtml(safeId(p.id))}">`
+    + `<span class="profile-tile" style="background:${safeColor(p.color)}">${escapeHtml(p.initial)}</span><strong>${escapeHtml(p.name)}</strong></button>`).join('');
+}
+$('#profile-options').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-profile]');
+  if (button) chooseProfile(button.dataset.profile);
+});
+
 function pinMessage(message) { $('#pin-error').textContent = message; }
 
 function setPinTexts(title, subtitle, label, submit) {
@@ -277,20 +389,24 @@ function setPinTexts(title, subtitle, label, submit) {
   $('#pin-submit').textContent = submit;
 }
 
-function showPinGate(mode, returnToWorkspace = false) {
-  pinMode = mode; pinStage = 'first'; pendingPin = ''; pinReturnToWorkspace = returnToWorkspace;
+function showPinGate(mode, returnToWorkspace = false, forced = false) {
+  pinMode = mode; pinStage = 'first'; pendingPin = ''; pinReturnToWorkspace = returnToWorkspace; pinForced = forced;
   $('#profile-picker').classList.add('hidden');
   $('.shell').classList.add('hidden');
   $('#code-gate').classList.remove('hidden');
   $('#pin-code').value = '';
+  $('#pin-code').maxLength = mode === 'login' ? 6 : PIN_LEN();
   pinMessage('');
-  const name = profileName(activeProfile);
-  if (mode === 'login') setPinTexts(`${name} için giriş kodu`, 'Bu profil için belirlenmiş 4 haneli kodu gir.', 'Giriş kodu', 'Giriş yap');
-  else setPinTexts(mode === 'change' ? 'Yeni giriş kodu' : `${name} için kod belirle`, 'Bu profile özel 4 haneli yeni kodunu oluştur.', 'Yeni kod', 'Devam et');
+  const name = personName(activeProfile);
+  const len = PIN_LEN();
+  if (mode === 'login') setPinTexts(`${name} için giriş kodu`, 'Giriş kodunu gir.', 'Giriş kodu', 'Giriş yap');
+  else if (forced) setPinTexts('Kendi kodunu belirle', `Güvenliğin için ${len} haneli yeni bir giriş kodu belirle. Bu kodu kimseyle paylaşma.`, 'Yeni kod', 'Devam et');
+  else setPinTexts(mode === 'change' ? 'Yeni giriş kodu' : `${name} için kod belirle`, `${len} haneli yeni kodunu oluştur.`, 'Yeni kod', 'Devam et');
   $('#pin-code').focus();
 }
 
 function openProfilePicker() {
+  if (pinForced && accessToken) return; // kod değiştirilmeden çıkılamaz
   stopPolling();
   $('#code-gate').classList.add('hidden');
   $('.shell').classList.add('hidden');
@@ -298,19 +414,20 @@ function openProfilePicker() {
   $('#pin-change').classList.toggle('hidden', !accessToken || authenticatedProfile !== activeProfile);
 }
 
-function continueAfterPin(token) {
+/** Kod doğrulandı: oturumu kur, gerekiyorsa kod değiştirmeye zorla. */
+async function continueAfterPin(token) {
   accessToken = token;
   authenticatedProfile = activeProfile;
-  $('#code-gate').classList.add('hidden');
-  if (pinReturnToWorkspace && activeProfile) openWorkspace(activeProfile);
-  else openProfilePicker();
+  if (!(await loadMe())) { pinMessage('Oturum açılamadı. Tekrar dene.'); accessToken = null; return; }
+  if (me.mustChange) { showPinGate('change', true, true); return; }
+  if (pinReturnToWorkspace) openWorkspace(); else openProfilePicker();
 }
 
 async function chooseProfile(profileId) {
   activeProfile = profileId;
-  if (accessToken && authenticatedProfile === profileId) { await openWorkspace(profileId); return; }
+  if (accessToken && authenticatedProfile === profileId && me) { await openWorkspace(); return; }
   stopPolling();
-  accessToken = null; authenticatedProfile = null;
+  accessToken = null; authenticatedProfile = null; me = null;
   $('#pin-change').classList.add('hidden');
   showPinGate('login', true);
   const { data, error } = await db.rpc('has_access_pin', { p_profile_id: profileId });
@@ -325,7 +442,7 @@ function resetPinToFirst(message) {
   pinMessage(message);
   pinStage = 'first'; pendingPin = '';
   $('#pin-code').value = '';
-  setPinTexts('Yeni giriş kodu', '4 haneli yeni kodunu oluştur.', 'Yeni kod', 'Devam et');
+  setPinTexts('Yeni giriş kodu', `${PIN_LEN()} haneli yeni kodunu oluştur.`, 'Yeni kod', 'Devam et');
   $('#pin-code').focus();
 }
 
@@ -336,7 +453,7 @@ async function submitPin(pin) {
     const { data, error } = await db.rpc('verify_access_pin', { p_profile_id: activeProfile, p_pin: pin });
     if (error) throw error;
     if (!data) { pinMessage('Kod doğru değil. Tekrar dene.'); input.value = ''; input.focus(); return; }
-    continueAfterPin(data);
+    await continueAfterPin(data);
     return;
   }
 
@@ -357,13 +474,25 @@ async function submitPin(pin) {
     pinMessage(pinMode === 'setup' ? 'Kod daha önce belirlenmiş. Sayfayı yenileyip giriş yap.' : 'Oturumun süresi dolmuş. Önce giriş yap.');
     return;
   }
-  continueAfterPin(pinMode === 'change' ? accessToken : result.data);
+  const wasForced = pinForced;
+  pinForced = false;
+  if (pinMode === 'change') {
+    if (me) me.mustChange = false;
+    toast('Giriş kodun güncellendi.');
+    if (wasForced || pinReturnToWorkspace) openWorkspace(); else openProfilePicker();
+    return;
+  }
+  await continueAfterPin(result.data);
 }
 
 $('#pin-form').addEventListener('submit', async (event) => {
   event.preventDefault();
   const pin = $('#pin-code').value.trim();
-  if (!/^\d{4}$/.test(pin)) { pinMessage('Kod 4 rakamdan oluşmalı.'); return; }
+  const len = PIN_LEN();
+  if (pinMode === 'login' ? !/^\d{4,6}$/.test(pin) : !new RegExp(`^\\d{${len}}$`).test(pin)) {
+    pinMessage(pinMode === 'login' ? 'Kod 4–6 rakamdan oluşmalı.' : `Yeni kod ${len} rakamdan oluşmalı.`);
+    return;
+  }
   $('#pin-submit').disabled = true;
   pinMessage('');
   try {
@@ -373,6 +502,8 @@ $('#pin-form').addEventListener('submit', async (event) => {
     if (locked) {
       pinMessage(`Çok fazla hatalı deneme. ${locked[1]} dakika sonra tekrar dene.`);
       $('#pin-code').value = '';
+    } else if (/six digits/i.test(error?.message || '')) {
+      pinMessage('Yeni kod 6 rakamdan oluşmalı.');
     } else {
       pinMessage(isMissingSchema(error) ? 'Supabase SQL kurulumu henüz yapılmamış.' : 'Supabase bağlantısı kurulamadı. Tekrar dene.');
     }
@@ -381,7 +512,6 @@ $('#pin-form').addEventListener('submit', async (event) => {
   }
 });
 $('#pin-change').addEventListener('click', () => showPinGate('change', Boolean(activeProfile)));
-$$('[data-profile]').forEach((button) => button.addEventListener('click', () => chooseProfile(button.dataset.profile)));
 $('#profile-switch').addEventListener('click', openProfilePicker);
 
 // ---------- Görünüm yardımcıları ----------
@@ -395,9 +525,10 @@ function dateLabel(value) {
 }
 const isToday = (value) => value && new Date(value).toDateString() === new Date().toDateString();
 const longDate = (value) => new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' }).format(new Date(value));
+const pct = (done, total) => (total ? Math.round((done / total) * 100) : 0);
 
 /**
- * Açık görev sırası: önce dikkat isteyenler (geciken, bugün biten, acil),
+ * Açık görev sırası: Meet'ler, sonra dikkat isteyenler (geciken, bugün biten, acil),
  * kendi içinde acil önce, sonra son tarihe göre, tarihsizler en sonda.
  */
 function sortOpen(list) {
@@ -410,21 +541,27 @@ function sortOpen(list) {
     || (b.createdAt || '').localeCompare(a.createdAt || ''));
 }
 
-function matchesSearch(task) {
-  if (!searchQuery) return true;
-  return lowerTr(`${task.title} ${task.detail} ${task.assignee}`).includes(searchQuery);
-}
+/** Benim ekranım: bana atananlar + (Merkez isem) Tüm Merkez işleri. */
 function isMine(task) {
-  const key = personKey(task.assignee);
-  return key === activeProfile || key === 'herkes';
+  if (!me) return false;
+  return task.assigneeId === me.id || (task.assigneeId === MERKEZ && isLead());
+}
+/** Kapsam + proje + arama filtresinden geçen görevler. */
+function scopedTasks() {
+  return tasks.filter((t) => (scope === 'team' && isLead() ? true : isMine(t))
+    && (!projectFilter || t.project === projectFilter)
+    && (!searchQuery || lowerTr(`${t.title} ${t.detail} ${personName(t.assigneeId)} ${t.project}`).includes(searchQuery)));
 }
 
 function whoLine(task) {
   const parts = [];
-  if (task.createdBy) parts.push(`${profileName(task.createdBy)} ekledi`);
-  if (task.done && task.completedBy) parts.push(`${profileName(task.completedBy)} tamamladı`);
+  if (task.createdBy && task.createdBy !== task.assigneeId) parts.push(`${personName(task.createdBy)} atadı`);
+  else if (task.createdBy) parts.push(`${personName(task.createdBy)} ekledi`);
+  if (task.done && task.completedBy) parts.push(`${personName(task.completedBy)} tamamladı`);
   return parts.join(' · ');
 }
+
+const statusLabel = (id) => STATUSES.find((s) => s.id === id)?.label || '';
 
 function taskRowHtml(task) {
   const id = escapeHtml(task.id);
@@ -439,72 +576,172 @@ function taskRowHtml(task) {
   const link = meet && !task.done ? safeLink(task.meetLink) : '';
   const join = link ? `<a class="meet-join" href="${escapeHtml(link)}" target="_blank" rel="noopener noreferrer">Katıl</a>` : '';
   const badge = meet ? '<span class="badge-meet">● Meet</span>' : urgent ? '<span class="badge-urgent">Acil</span>' : '';
+  const state = !task.done && (task.status === 'doing' || task.status === 'waiting')
+    ? `<span class="status-pill s-${task.status}">${statusLabel(task.status)}</span>` : '';
+  const project = task.project ? `<span class="project-tag">#${escapeHtml(task.project)}</span>` : '';
   const who = whoLine(task);
   return `<div class="task-row ${task.done ? 'completed' : ''} ${urgent && !task.done && !meet ? 'urgent' : ''} ${meet ? 'meet' : ''}">`
     + `<input class="check" type="checkbox" data-toggle="${id}" ${task.done ? 'checked' : ''} aria-label="${task.done ? 'Tamamlandı' : 'Tamamlandı olarak işaretle'}">`
-    + `<button type="button" class="task-content" data-edit="${id}" title="Düzenle">`
+    + `<button type="button" class="task-content" data-edit="${id}" title="${canEdit(task) ? 'Düzenle' : 'Ayrıntılar'}">`
     + `<span class="task-title">${badge}${escapeHtml(task.title)}</span>`
     + `${task.detail ? `<span class="task-detail">${escapeHtml(task.detail)}</span>` : ''}`
-    + `${who ? `<span class="task-who">${escapeHtml(who)}</span>` : ''}</button>`
-    + `<div class="task-meta">${join}${due}<span class="assignee p-${personKey(task.assignee)}">${escapeHtml(task.assignee)}</span></div>`
-    + `<button class="delete-task" data-delete="${id}" aria-label="Görevi sil" title="Görevi sil">×</button></div>`;
+    + `<span class="task-who">${state}${project}${who ? `<span>${escapeHtml(who)}</span>` : ''}</span></button>`
+    + `<div class="task-meta">${join}${due}<span class="assignee p-${safeId(task.assigneeId)}">${escapeHtml(personName(task.assigneeId) || task.assignee)}</span></div>`
+    + `${canDelete(task) ? `<button class="delete-task" data-delete="${id}" aria-label="Görevi sil" title="Görevi sil">×</button>` : '<span class="delete-spacer"></span>'}</div>`;
+}
+
+/** Liste: Benim görevlerim (düz) ya da Ekip takibi (kişi kişi gruplu). */
+function renderList(list) {
+  const open = sortOpen(list.filter((t) => !t.done));
+  const completed = list.filter((t) => t.done).sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+  const pick = (arr) => (filter === 'open' ? arr.filter((t) => !t.done) : filter === 'done' ? arr.filter((t) => t.done) : arr);
+
+  if (scope === 'team' && isLead()) {
+    const groups = [person(MERKEZ), ...team.filter((p) => p.active !== false)];
+    const today = todayKey();
+    const html = groups.map((p) => {
+      const mine = list.filter((t) => t.assigneeId === p.id);
+      if (!mine.length && p.id === MERKEZ) return '';
+      const doneCount = mine.filter((t) => t.done).length;
+      const lateCount = mine.filter((t) => !t.done && t.due && t.due < today).length;
+      const rows = pick([...sortOpen(mine.filter((t) => !t.done)), ...mine.filter((t) => t.done)]);
+      return `<div class="team-group p-${safeId(p.id)}"><div class="team-group-head">`
+        + `<span class="avatar small" style="background:${safeColor(p.color)}">${escapeHtml(p.initial)}</span>`
+        + `<div><strong>${escapeHtml(p.name)}</strong><small>${ROLE_LABELS[p.role] || ''}</small></div>`
+        + `<span class="group-stats">${mine.length - doneCount} açık${lateCount ? ` · <b class="late">${lateCount} geciken</b>` : ''}</span>`
+        + `<span class="progress" title="%${pct(doneCount, mine.length)} tamamlandı"><i style="width:${pct(doneCount, mine.length)}%"></i></span></div>`
+        + `${rows.length ? rows.map(taskRowHtml).join('') : '<div class="group-empty">Görev yok</div>'}</div>`;
+    }).join('');
+    $('#task-list').innerHTML = html;
+    return list.length;
+  }
+  const visible = pick([...open, ...completed]);
+  $('#task-list').innerHTML = visible.map(taskRowHtml).join('');
+  return visible.length;
+}
+
+/** Pano: dört durum sütunu, kartlar sürüklenebilir (telefonda durum menüsü). */
+function renderBoard(list) {
+  const today = todayKey();
+  $('#task-board').innerHTML = STATUSES.map((s) => {
+    const items = s.id === 'done'
+      ? list.filter((t) => t.status === 'done').sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || '')).slice(0, 30)
+      : sortOpen(list.filter((t) => t.status === s.id));
+    return `<section class="board-col s-${s.id}" data-status="${s.id}"><header><span>${s.label}</span><b>${items.length}</b></header>`
+      + `<div class="board-cards">${items.map((t) => {
+        const late = !t.done && t.due && t.due < today;
+        return `<article class="card ${isMeet(t) ? 'meet' : ''} ${t.priority === 'urgent' && !isMeet(t) ? 'urgent' : ''}" draggable="true" data-card="${escapeHtml(t.id)}">`
+          + `<button type="button" class="card-title" data-edit="${escapeHtml(t.id)}">${isMeet(t) ? '<span class="badge-meet">● Meet</span>' : ''}${escapeHtml(t.title)}</button>`
+          + `<div class="card-meta">${t.project ? `<span class="project-tag">#${escapeHtml(t.project)}</span>` : ''}`
+          + `${t.due ? `<span class="due ${late ? 'late' : ''}">${dateLabel(t.due)}${isMeet(t) && t.meetTime ? ` · ${t.meetTime}` : ''}</span>` : ''}`
+          + `<span class="assignee p-${safeId(t.assigneeId)}">${escapeHtml(personName(t.assigneeId) || t.assignee)}</span></div>`
+          + `<select class="card-status" data-status-for="${escapeHtml(t.id)}" aria-label="Durumu değiştir">${STATUSES.map((o) => `<option value="${o.id}" ${o.id === t.status ? 'selected' : ''}>${o.label}</option>`).join('')}</select>`
+          + '</article>';
+      }).join('') || '<div class="board-empty">Boş</div>'}</div></section>`;
+  }).join('');
+  return list.length;
+}
+
+/** Proje şeridi: her projenin ilerlemesi; tıklayınca o projeye süzülür. */
+function renderProjects(base) {
+  const map = new Map();
+  for (const t of base) {
+    if (!t.project) continue;
+    const m = map.get(t.project) || { total: 0, done: 0 };
+    m.total += 1; if (t.done) m.done += 1;
+    map.set(t.project, m);
+  }
+  if (projectFilter && !map.has(projectFilter)) projectFilter = null;
+  const chips = [...map.entries()].sort((a, b) => b[1].total - a[1].total).map(([name, m]) => {
+    const p = pct(m.done, m.total);
+    return `<button type="button" class="project-chip ${projectFilter === name ? 'active' : ''}" data-project="${escapeHtml(name)}">`
+      + `<span>#${escapeHtml(name)}</span><small>${m.done}/${m.total}</small><span class="progress"><i style="width:${p}%"></i></span><b>%${p}</b></button>`;
+  });
+  $('#project-strip').innerHTML = chips.length
+    ? `<button type="button" class="project-chip all ${projectFilter ? '' : 'active'}" data-project="">Tüm projeler</button>${chips.join('')}` : '';
+  $('#project-options').innerHTML = [...new Set(tasks.map((t) => t.project).filter(Boolean))].map((p) => `<option value="${escapeHtml(p)}">`).join('');
 }
 
 function reportRowHtml(task) {
-  const by = task.completedBy ? ` · ${escapeHtml(profileName(task.completedBy))}` : '';
-  return `<div class="report-row"><div class="report-name">${escapeHtml(task.title)}</div>`
+  const by = task.completedBy ? ` · ${escapeHtml(personName(task.completedBy))}` : '';
+  return `<div class="report-row"><div class="report-name">${escapeHtml(task.title)}${task.project ? ` <span class="project-tag">#${escapeHtml(task.project)}</span>` : ''}</div>`
     + `${task.detail ? `<div class="report-detail">${escapeHtml(task.detail)}</div>` : ''}`
     + `<div class="report-date">Tamamlandı: ${task.completedAt ? longDate(task.completedAt) : 'Tarih yok'}${by}</div>`
-    + `<span class="report-badge">✓ ${escapeHtml(task.assignee)}</span></div>`;
+    + `<span class="report-badge">✓ ${escapeHtml(personName(task.assigneeId) || task.assignee)}</span></div>`;
 }
 
 function render() {
   const today = todayKey();
-  const open = sortOpen(tasks.filter((t) => !t.done));
-  const completed = tasks.filter((t) => t.done).sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
+  // Proje şeridi ve özet kartları, proje süzgecinden ÖNCEKİ kapsamı gösterir
+  const savedProject = projectFilter;
+  projectFilter = null;
+  const base = scopedTasks();
+  projectFilter = savedProject;
+  renderProjects(base);
+  const list = scopedTasks();
 
-  // Özet kartları her zaman tüm ekibi gösterir
+  const open = list.filter((t) => !t.done);
   $('#stat-open').textContent = open.length;
-  $('#nav-open').textContent = open.length;
-  $('#stat-done').textContent = completed.filter((t) => isToday(t.completedAt)).length;
+  $('#nav-open').textContent = tasks.filter((t) => isMine(t) && !t.done).length;
+  $('#stat-done').textContent = list.filter((t) => t.done && isToday(t.completedAt)).length;
   $('#stat-late').textContent = open.filter((t) => t.due && t.due < today).length;
 
-  const base = filter === 'open' ? open : filter === 'done' ? completed : [...open, ...completed];
-  const visible = base.filter((t) => (!onlyMine || isMine(t)) && matchesSearch(t));
-  $('#task-list').innerHTML = visible.map(taskRowHtml).join('');
-  const narrowed = Boolean(searchQuery || onlyMine || filter !== 'all');
-  $('#empty-state').style.display = visible.length ? 'none' : 'block';
+  const teamMode = scope === 'team' && isLead();
+  $('#panel-title').textContent = teamMode ? 'Ekip takibi' : 'Görevlerim';
+  $('#panel-sub').textContent = teamMode ? 'Herkesin işleri kişi kişi' : (isLead() ? 'Sana ve Tüm Merkez’e atanan işler' : 'Sana atanan işler');
+  $('#task-list').classList.toggle('hidden', layout === 'board');
+  $('.workspace-grid').classList.toggle('board-mode', layout === 'board');
+  $('#task-board').classList.toggle('hidden', layout !== 'board');
+  $('#status-filters').classList.toggle('hidden', layout === 'board');
+
+  const count = layout === 'board' ? renderBoard(list) : renderList(list);
+  const narrowed = Boolean(searchQuery || projectFilter || filter !== 'all');
+  $('#empty-state').style.display = count || (teamMode && layout === 'list') ? 'none' : 'block';
   $('#empty-title').textContent = narrowed && tasks.length ? 'Eşleşen görev yok' : 'Henüz görev yok';
   $('#empty-text').textContent = narrowed && tasks.length ? 'Filtreleri veya aramayı değiştir.' : 'İlk görevi ekleyerek başlayın.';
 
+  // Raporlar: yetkin olan her şey (YK için yalnızca kendi işleri)
+  const completed = tasks.filter((t) => t.done).sort((a, b) => (b.completedAt || '').localeCompare(a.completedAt || ''));
   const week = new Date(); week.setDate(week.getDate() - 6); week.setHours(0, 0, 0, 0);
   $('#report-total').textContent = completed.length;
   $('#report-week').textContent = completed.filter((t) => t.completedAt && new Date(t.completedAt) >= week).length;
   $('#report-list').innerHTML = completed.map(reportRowHtml).join('');
   $('#report-empty').style.display = completed.length ? 'none' : 'block';
 
+  if (currentView === 'team') renderTeam();
   window.GorevTakvim.render(tasks);
 }
 
 function setView(view) {
+  if (view === 'team' && !isLead()) view = 'tasks';
   currentView = view;
   $$('.view').forEach((section) => section.classList.toggle('hidden', section.id !== `${view}-view`));
   $('#crumb-view').textContent = VIEW_LABELS[view];
   $$('.nav-item').forEach((b) => b.classList.toggle('active', b.dataset.view === view));
   if (view === 'calendar') window.GorevTakvim.render(tasks);
+  if (view === 'team') renderTeam();
 }
 
 function setFilter(value) {
   filter = value;
   $$('.filter[data-filter]').forEach((b) => b.classList.toggle('active', b.dataset.filter === value));
 }
+function syncSegments() {
+  $$('#scope-tabs [data-scope]').forEach((b) => b.classList.toggle('active', b.dataset.scope === scope));
+  $$('#layout-tabs [data-layout]').forEach((b) => b.classList.toggle('active', b.dataset.layout === layout));
+}
 
 $$('.filter[data-filter]').forEach((button) => button.addEventListener('click', () => { setFilter(button.dataset.filter); render(); }));
 $$('.nav-item').forEach((button) => button.addEventListener('click', () => setView(button.dataset.view)));
-$('#mine-toggle').addEventListener('click', (event) => {
-  onlyMine = !onlyMine;
-  event.currentTarget.setAttribute('aria-pressed', String(onlyMine));
-  event.currentTarget.classList.toggle('active', onlyMine);
+$('#scope-tabs').addEventListener('click', (e) => { const b = e.target.closest('[data-scope]'); if (!b) return; scope = b.dataset.scope; syncSegments(); render(); });
+$('#layout-tabs').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-layout]'); if (!b) return;
+  layout = b.dataset.layout; syncSegments(); render();
+  try { localStorage.setItem('gorev-layout', layout); } catch { /* yoksay */ }
+});
+$('#project-strip').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-project]'); if (!b) return;
+  projectFilter = b.dataset.project && b.dataset.project !== projectFilter ? b.dataset.project : null;
   render();
 });
 $('#task-search').addEventListener('input', (event) => { searchQuery = lowerTr(event.target.value.trim()); render(); });
@@ -512,11 +749,13 @@ $('#task-search').addEventListener('input', (event) => { searchQuery = lowerTr(e
 // ---------- Görev formu (ekle / düzenle) ----------
 const form = $('#task-form');
 
-/** Sorumlu listesini doldurur; listede olmayan eski bir isim varsa onu da ekler. */
-function fillAssigneeOptions(selected) {
-  const names = ASSIGNEES.includes(selected) || !selected ? ASSIGNEES : [...ASSIGNEES, selected];
-  form.elements.assignee.innerHTML = names.map((n) => `<option value="${escapeHtml(n)}">${escapeHtml(n)}</option>`).join('');
-  form.elements.assignee.value = selected || profileName(activeProfile);
+/** Sorumlu listesi: yalnızca atama yetkim olan kişiler (+ düzenlenen görevin mevcut sorumlusu). */
+function fillAssigneeOptions(selected, kind) {
+  const options = [person(MERKEZ), ...team.filter((p) => p.active !== false)].filter((p) => canAssign(p.id, kind));
+  if (selected && !options.some((p) => p.id === selected) && person(selected)) options.unshift(person(selected));
+  form.elements.assignee.innerHTML = options.map((p) => `<option value="${escapeHtml(p.id)}">${escapeHtml(p.name)}${p.id === me?.id ? ' (ben)' : ''}</option>`).join('');
+  form.elements.assignee.value = options.some((p) => p.id === selected) ? selected : (options.find((p) => p.id === me?.id) || options[0])?.id || '';
+  form.elements.assignee.disabled = options.length <= 1;
 }
 
 /** Formu görev ya da meet moduna geçirir. */
@@ -545,16 +784,27 @@ function openDialog(task, due, kind = 'task') {
   editing = task ? { id: task.id, updatedAt: task.updatedAt } : null;
   form.reset();
   $('#task-form-error').textContent = '';
-  setFormKind(task ? task.kind : kind, Boolean(task));
-  fillAssigneeOptions(task ? task.assignee : kind === 'meet' ? 'Herkes' : profileName(activeProfile));
+  const k = task ? task.kind : kind;
+  setFormKind(k, Boolean(task));
+  fillAssigneeOptions(task ? task.assigneeId : k === 'meet' && canAssign(MERKEZ, 'meet') ? MERKEZ : me?.id, k);
   form.elements.meet_time.value = task?.meetTime || '';
   form.elements.meet_link.value = task?.meetLink || '';
   form.elements.title.value = task?.title || '';
   form.elements.detail.value = task?.detail || '';
   form.elements.due.value = task?.due || due || '';
   form.elements.priority.value = task?.priority || 'normal';
+  form.elements.project.value = task?.project || (projectFilter && !task ? projectFilter : '');
+  form.elements.status.value = task?.status || 'todo';
+  $('#status-field').classList.toggle('hidden', !task);
+
+  // Yetkim yoksa yalnızca görüntüle (durum değiştirilebilir)
+  const readOnly = Boolean(task) && !canEdit(task);
+  ['title', 'detail', 'due', 'priority', 'project', 'meet_time', 'meet_link'].forEach((n) => { form.elements[n].disabled = readOnly; });
+  if (readOnly) form.elements.assignee.disabled = true;
+  if (readOnly) { $('#dialog-eyebrow').textContent = 'AYRINTILAR'; $('#dialog-submit').textContent = 'Durumu kaydet'; }
+  $('#task-dialog').dataset.readonly = readOnly ? '1' : '';
   $('#task-dialog').showModal();
-  form.elements.title.focus();
+  (readOnly ? form.elements.status : form.elements.title).focus();
 }
 const closeDialog = () => { editing = null; $('#task-dialog').close(); };
 
@@ -568,12 +818,23 @@ $('#task-dialog').addEventListener('close', () => { editing = null; });
 form.addEventListener('submit', async (event) => {
   event.preventDefault();
   const data = new FormData(form);
+  const original = editing ? tasks.find((t) => t.id === editing.id) : null;
+
+  // Yalnızca görüntüleme: sadece durum değişebilir
+  if ($('#task-dialog').dataset.readonly && original) {
+    const status = data.get('status');
+    closeDialog();
+    await setStatus(original, status);
+    return;
+  }
+
   const fields = {
     title: data.get('title').trim(),
     detail: data.get('detail').trim(),
-    assignee: data.get('assignee') || profileName(activeProfile),
+    assigneeId: form.elements.assignee.value || me?.id,
     due: data.get('due') || '',
     priority: data.get('priority') === 'urgent' ? 'urgent' : 'normal',
+    project: (data.get('project') || '').trim(),
     kind: data.get('kind') === 'meet' ? 'meet' : 'task',
     meetTime: data.get('meet_time') || '',
     meetLink: (data.get('meet_link') || '').trim(),
@@ -582,18 +843,16 @@ form.addEventListener('submit', async (event) => {
     fields.priority = 'urgent';
     if (!fields.due || !fields.meetTime) { $('#task-form-error').textContent = 'Meet için tarih ve saat seçmelisin.'; return; }
     if (fields.meetLink && !safeLink(fields.meetLink)) { $('#task-form-error').textContent = 'Meet bağlantısı https:// ile başlamalı.'; return; }
-    if (serverHasMeet === false) { $('#task-form-error').textContent = 'Meet için önce Supabase güncellemesini (v2_features.sql) çalıştırın.'; return; }
   }
   const submit = $('#dialog-submit');
   submit.disabled = true;
 
   if (editing) {
-    const original = tasks.find((t) => t.id === editing.id);
     const updated = { ...(original || {}), ...fields, id: editing.id };
     const { data: updatedAt, error, expired } = await updateTask(updated, editing.updatedAt);
-    submit.disabled = false;
-    if (expired) return;
+    if (expired) { submit.disabled = false; return; }
     if (error) {
+      submit.disabled = false;
       $('#task-form-error').textContent = taskErrorMessage(error);
       if (/TASK_CONFLICT/.test(error.message)) {
         await refreshTasks();
@@ -602,8 +861,11 @@ form.addEventListener('submit', async (event) => {
       }
       return;
     }
-    if (original) Object.assign(original, fields, { updatedAt });
+    const newStatus = data.get('status');
+    if (original) Object.assign(original, fields, { updatedAt, assignee: personName(fields.assigneeId) });
+    submit.disabled = false;
     closeDialog();
+    if (original && newStatus && newStatus !== original.status) await setStatus(original, newStatus);
     render();
     setSyncStatus('Ortak kayıt açık');
     toast(fields.kind === 'meet' ? 'Meet güncellendi.' : 'Görev güncellendi.');
@@ -611,9 +873,9 @@ form.addEventListener('submit', async (event) => {
   }
 
   const task = {
-    id: crypto.randomUUID(), ...fields, done: false,
+    id: crypto.randomUUID(), ...fields, assignee: personName(fields.assigneeId), done: false, status: 'todo',
     createdAt: new Date().toISOString(), completedAt: null,
-    createdBy: authenticatedProfile, completedBy: null, updatedAt: null,
+    createdBy: me?.id, completedBy: null, updatedAt: null,
   };
   const { error, expired } = await addTask(task);
   submit.disabled = false;
@@ -628,10 +890,11 @@ form.addEventListener('submit', async (event) => {
   tasks.unshift(task);
   render();
   setSyncStatus('Ortak kayıt açık');
+  if (task.assigneeId !== me?.id && !isMine(task)) toast(`Görev ${personName(task.assigneeId)}'e atandı. "Ekip takibi"nde görebilirsin.`, null, 4500);
   refreshTasks(); // sunucu saatini (updated_at) hemen al; düzenleme kontrolü için gerekli
 });
 
-// "N" tuşu: yeni görev
+// "N" yeni görev, "M" yeni Meet
 document.addEventListener('keydown', (event) => {
   const keyName = event.key.toLowerCase();
   if (keyName !== 'n' && keyName !== 'm') return;
@@ -639,63 +902,161 @@ document.addEventListener('keydown', (event) => {
   if (event.target.closest('input, textarea, select, [contenteditable]')) return;
   if ($('#task-dialog').open || $('.shell').classList.contains('hidden')) return;
   event.preventDefault();
-  if (keyName === 'm') openDialog(null, todayKey(), 'meet'); else openDialog();
+  if (keyName === 'm' && isLead()) openDialog(null, todayKey(), 'meet'); else if (keyName === 'n') openDialog();
 });
 
-// ---------- Görev listesi: düzenle / tamamla / sil ----------
-$('#task-list').addEventListener('change', async (event) => {
+// ---------- Görev listesi ve pano: düzenle / tamamla / sil / durum ----------
+const findTask = (id) => tasks.find((t) => t.id === id);
+
+$('#task-list').addEventListener('change', (event) => {
   const box = event.target;
   if (!box.matches('[data-toggle]')) return;
-  const task = tasks.find((t) => t.id === box.dataset.toggle);
-  if (!task) return;
-  const before = { done: task.done, completedAt: task.completedAt, completedBy: task.completedBy };
-  task.done = box.checked;
-  task.completedAt = task.done ? new Date().toISOString() : null;
-  task.completedBy = task.done ? authenticatedProfile : null;
-  box.disabled = true;
-  const { error, expired } = await rpc('update_task_state', {
-    p_session_token: accessToken, p_task_id: task.id, p_done: task.done, p_completed_at: task.completedAt,
-  });
-  if (expired) return;
-  if (error) Object.assign(task, before); // başarısızsa eski hâline döndür
-  setSyncStatus(error ? 'Eşitleme başarısız' : 'Ortak kayıt açık', Boolean(error));
-  render();
+  const task = findTask(box.dataset.toggle);
+  if (task) setStatus(task, box.checked ? 'done' : 'todo');
 });
 
-$('#task-list').addEventListener('click', async (event) => {
-  const edit = event.target.closest('[data-edit]');
-  if (edit) { const task = tasks.find((t) => t.id === edit.dataset.edit); if (task) openDialog(task); return; }
-
-  const button = event.target.closest('[data-delete]');
-  if (!button) return;
-  const id = button.dataset.delete;
-  const task = tasks.find((t) => t.id === id);
+async function deleteTask(id) {
+  const task = findTask(id);
   if (!task) return;
-  button.disabled = true;
   const { error, expired } = await rpc('delete_task', { p_session_token: accessToken, p_task_id: id });
   if (expired) return;
-  if (error) { button.disabled = false; setSyncStatus('Görev silinemedi', true); return; }
+  if (error) { toast(taskErrorMessage(error)); setSyncStatus('Görev silinemedi', true); return; }
   tasks = tasks.filter((t) => t.id !== id);
   render();
   setSyncStatus('Ortak kayıt açık');
   toast(`${isMeet(task) ? 'Meet' : 'Görev'} silindi: "${task.title}"`, { label: 'Geri al', onClick: () => restoreTask(task) }, UNDO_MS);
+}
+
+$('#task-list').addEventListener('click', (event) => {
+  const edit = event.target.closest('[data-edit]');
+  if (edit) { const task = findTask(edit.dataset.edit); if (task) openDialog(task); return; }
+  const del = event.target.closest('[data-delete]');
+  if (del) { del.disabled = true; deleteTask(del.dataset.delete); }
+});
+
+$('#task-board').addEventListener('click', (event) => {
+  const edit = event.target.closest('[data-edit]');
+  if (edit) { const task = findTask(edit.dataset.edit); if (task) openDialog(task); }
+});
+$('#task-board').addEventListener('change', (event) => {
+  const sel = event.target.closest('[data-status-for]');
+  if (!sel) return;
+  const task = findTask(sel.dataset.statusFor);
+  if (task) setStatus(task, sel.value);
+});
+// Sürükle-bırak (masaüstü)
+let dragCard = null;
+$('#task-board').addEventListener('dragstart', (e) => {
+  const card = e.target.closest('[data-card]');
+  if (!card) return;
+  dragCard = card.dataset.card;
+  e.dataTransfer.effectAllowed = 'move';
+  e.dataTransfer.setData('text/plain', dragCard);
+  card.classList.add('dragging');
+});
+$('#task-board').addEventListener('dragend', () => {
+  dragCard = null;
+  $$('#task-board .dragging, #task-board .drop').forEach((x) => x.classList.remove('dragging', 'drop'));
+});
+$('#task-board').addEventListener('dragover', (e) => {
+  const col = e.target.closest('[data-status]');
+  if (!col || !dragCard) return;
+  e.preventDefault();
+  $$('#task-board .drop').forEach((x) => x !== col && x.classList.remove('drop'));
+  col.classList.add('drop');
+});
+$('#task-board').addEventListener('drop', (e) => {
+  const col = e.target.closest('[data-status]');
+  if (!col || !dragCard) return;
+  e.preventDefault();
+  const task = findTask(dragCard);
+  col.classList.remove('drop');
+  if (task) setStatus(task, col.dataset.status);
 });
 
 /** Silinen görevi aynen geri koyar. */
 async function restoreTask(task) {
   const payload = {
-    ...editablePayload(task), done: task.done, created_at: task.createdAt, completed_at: task.completedAt,
+    ...editablePayload(task), done: task.done, status: task.status, created_at: task.createdAt, completed_at: task.completedAt,
     created_by: task.createdBy, completed_by: task.completedBy,
   };
-  let result = await rpc('restore_task', { p_session_token: accessToken, p_task: payload });
-  if (result.error && isMissingSchema(result.error)) {
-    result = await rpc('upsert_task', { p_session_token: accessToken, p_task: payload });
-  }
+  const result = await rpc('restore_task', { p_session_token: accessToken, p_task: payload });
   if (result.expired) return;
   if (result.error) { toast('Görev geri alınamadı.'); return; }
   await refreshTasks();
   toast('Görev geri alındı.');
 }
+
+// ---------- Ekip yönetimi ----------
+function renderTeam() {
+  if (!isLead()) return;
+  const canManage = (p) => p.id !== me.id && p.role !== 'owner' && (me.role === 'owner' || p.role === 'yk');
+  $('#team-sub').textContent = `${team.filter((p) => p.active !== false).length} aktif kişi`;
+  $('#team-list').innerHTML = team.map((p) => {
+    const open = tasks.filter((t) => t.assigneeId === p.id && !t.done).length;
+    return `<div class="member-row ${p.active === false ? 'inactive' : ''}">`
+      + `<span class="avatar small" style="background:${safeColor(p.color)}">${escapeHtml(p.initial)}</span>`
+      + `<div class="member-info"><strong>${escapeHtml(p.name)}${p.id === me.id ? ' <small>(sen)</small>' : ''}</strong><small>${ROLE_LABELS[p.role] || ''}${p.active === false ? ' · pasif' : ` · ${open} açık görev`}</small></div>`
+      + (canManage(p) ? `<div class="member-actions"><button type="button" class="secondary" data-reset="${escapeHtml(p.id)}">Kodu sıfırla</button>`
+        + `<button type="button" class="secondary" data-active="${escapeHtml(p.id)}" data-to="${p.active === false ? '1' : '0'}">${p.active === false ? 'Aktifleştir' : 'Pasifleştir'}</button></div>` : '')
+      + '</div>';
+  }).join('');
+  $('#member-form').elements.role.querySelector('[value="merkez"]').disabled = me.role !== 'owner';
+}
+
+const randomPin = () => String(crypto.getRandomValues(new Uint32Array(1))[0] % 1000000).padStart(6, '0');
+const memberError = (error) => {
+  const msg = error?.message || '';
+  if (/NOT_ALLOWED/.test(msg)) return 'Bu işlem için yetkin yok.';
+  if (/INVALID_MEMBER:name/.test(msg)) return 'Ad 1–40 karakter olmalı.';
+  if (/INVALID_MEMBER:pin/.test(msg)) return 'Kod 6 rakamdan oluşmalı.';
+  if (/INVALID_MEMBER:limit/.test(msg)) return 'Kişi sınırına ulaşıldı.';
+  if (isMissingSchema(error)) return 'Bu özellik için Supabase güncellemesi (v3_team.sql) gerekiyor.';
+  return 'İşlem yapılamadı. Tekrar dene.';
+};
+
+$('#member-pin-gen').addEventListener('click', () => { $('#member-form').elements.pin.value = randomPin(); });
+$('#member-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const f = event.currentTarget;
+  const name = f.elements.name.value.trim();
+  const role = f.elements.role.value;
+  const pin = f.elements.pin.value.trim();
+  $('#member-error').textContent = '';
+  if (!/^\d{6}$/.test(pin)) { $('#member-error').textContent = 'İlk kod 6 rakamdan oluşmalı.'; return; }
+  const { error, expired } = await rpc('add_member', { p_session_token: accessToken, p_name: name, p_role: role, p_initial_pin: pin });
+  if (expired) return;
+  if (error) { $('#member-error').textContent = memberError(error); return; }
+  f.reset();
+  await loadTeam();
+  render();
+  toast(`${name} eklendi. İlk giriş kodu: ${pin} — kendisine ilet.`, null, 9000);
+});
+
+$('#team-list').addEventListener('click', async (event) => {
+  const reset = event.target.closest('[data-reset]');
+  const act = event.target.closest('[data-active]');
+  if (!reset && !act) return;
+  const id = (reset || act).dataset.reset || (reset || act).dataset.active;
+  const p = person(id);
+  let params;
+  if (reset) {
+    const pin = window.prompt(`${p?.name} için yeni ilk giriş kodu (6 hane):`, randomPin());
+    if (pin === null) return;
+    if (!/^\d{6}$/.test(pin.trim())) { toast('Kod 6 rakamdan oluşmalı.'); return; }
+    params = { p_active: null, p_reset_pin: pin.trim() };
+  } else {
+    const toActive = act.dataset.to === '1';
+    if (!toActive && !confirm(`${p?.name} pasifleştirilsin mi? Giriş yapamaz, açık oturumu kapanır. Görevleri silinmez.`)) return;
+    params = { p_active: toActive, p_reset_pin: null };
+  }
+  const { error, expired } = await rpc('update_member', { p_session_token: accessToken, p_member_id: id, ...params });
+  if (expired) return;
+  if (error) { toast(memberError(error)); return; }
+  await loadTeam();
+  render();
+  toast(reset ? `${p?.name} için yeni ilk kod: ${params.p_reset_pin} — kendisine ilet.` : `${p?.name} ${params.p_active ? 'aktifleştirildi' : 'pasifleştirildi'}.`, null, reset ? 9000 : 3200);
+});
 
 // ---------- Not ----------
 $('#sticky-note').addEventListener('input', () => {
@@ -732,10 +1093,11 @@ const csvCell = (value) => {
 $('#export-report').addEventListener('click', () => {
   const stamp = new Intl.DateTimeFormat('tr-TR', { dateStyle: 'short', timeStyle: 'short' });
   const rows = [
-    ['Görev', 'Tür', 'Detay', 'Sorumlu', 'Öncelik', 'Ekleyen', 'Tamamlayan', 'Tamamlanma tarihi'],
+    ['Görev', 'Tür', 'Proje', 'Detay', 'Sorumlu', 'Öncelik', 'Ekleyen', 'Tamamlayan', 'Tamamlanma tarihi'],
     ...tasks.filter((t) => t.done).map((t) => [
-      t.title, isMeet(t) ? `Meet ${t.due} ${t.meetTime}` : 'Görev', t.detail, t.assignee, t.priority === 'urgent' ? 'Acil' : 'Normal',
-      profileName(t.createdBy), profileName(t.completedBy),
+      t.title, isMeet(t) ? `Meet ${t.due} ${t.meetTime}` : 'Görev', t.project, t.detail,
+      personName(t.assigneeId) || t.assignee, t.priority === 'urgent' ? 'Acil' : 'Normal',
+      personName(t.createdBy), personName(t.completedBy),
       t.completedAt ? stamp.format(new Date(t.completedAt)) : '',
     ]),
   ];
@@ -749,15 +1111,16 @@ $('#export-report').addEventListener('click', () => {
 
 // ---------- Takvim ----------
 window.GorevTakvim.mount({
-  personKey,
+  personKey: (task) => safeId(task.assigneeId),
+  people: () => (isLead() ? [person(MERKEZ), ...team.filter((p) => p.active !== false)] : []).map((p) => ({ id: safeId(p.id), name: p.name })),
   notify: (message) => toast(message),
   onDayClick: (due) => openDialog(null, due),
-  onTaskClick: (id) => { const task = tasks.find((t) => t.id === id); if (task) openDialog(task); },
+  onTaskClick: (id) => { const task = findTask(id); if (task) openDialog(task); },
   onMove: moveTask,
 });
 
 // ---------- Başlat ----------
 purgeLegacyStorage();
+try { layout = localStorage.getItem('gorev-layout') === 'board' ? 'board' : 'list'; } catch { /* yoksay */ }
 setNoteText('');
-render();
-openProfilePicker();
+loadLoginProfiles().then(openProfilePicker);
